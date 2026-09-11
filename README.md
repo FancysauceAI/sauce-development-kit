@@ -193,6 +193,8 @@ fancy.init({ apiKey, content: "none" });
 
 `"none"` works at both layers: the instrumentation is told not to record content in the first place, and the exporter strips those three attributes on the way out as a backstop. Token counts, model names, latency, attribution, and everything else still ship.
 
+The backstop is exactly those three keys and nothing else. Any other attribute carrying prompt or response text — one your own code sets, one another instrumentation writes, the ones the Vercel AI SDK records under its own names — passes through untouched, and is governed only by whatever told that layer to record it. For the AI SDK that is `recordInputs` and `recordOutputs`; see [Vercel AI SDK](#vercel-ai-sdk).
+
 ### Redacting
 
 `redact` runs on each content attribute's serialized value, in your process, immediately before export:
@@ -208,7 +210,11 @@ The value arrives already serialized — the GenAI conventions carry these as JS
 
 ### What leaves the process
 
-Spans only. Each export is an OTLP/HTTP JSON request to `${endpoint}/v1/traces`, gzipped, with your API key as a bearer token. A span carries the model, token counts, timings, your attribution and metadata, the reserved identity attributes, and — unless you turned it off — the content attributes above. Nothing else about your process is read or sent.
+Spans. Each export is an OTLP/HTTP JSON request to `${endpoint}/v1/traces`, gzipped, with your API key as a bearer token. The SDK reads nothing else about your process — no environment, no configuration files, no source.
+
+Which spans is the part worth reading twice. With `registerProvider` at its default, `init()` owns the global tracer provider, so every span created against it is exported — not only the LLM ones. A span your own code starts, or a span from any other OpenTelemetry instrumentation you have loaded, goes to Fancysauce as well, carrying whatever that instrumentation puts on it: request URLs, SQL statements, exception messages and stack traces on recorded errors. `content: "none"` and `redact` reach none of that; both act only on the three GenAI content attributes above.
+
+If that is more than you mean to send, take the pipeline back: `init({ registerProvider: false })` and attach `fancy.spanProcessors()` to a provider you build (see [Bringing your own tracer provider](#bringing-your-own-tracer-provider)). The processors still export every span the provider they are attached to receives — but which provider that is, and which instrumentations feed it, becomes your decision rather than this SDK's.
 
 ### The size cap
 
@@ -305,6 +311,8 @@ const { text } = await fancy.attribute({ customer: "acme-42" }, () =>
 
 Spread the object to add the AI SDK's own fields, as above; `functionId` and its `metadata` are the AI SDK's, not this SDK's.
 
+The object carries `recordInputs` and `recordOutputs`, set from `init({ content })`, and those are the only thing governing the content the AI SDK records — it writes its prompts and responses under its own attribute names, which the exporter's three-key backstop does not cover. So pass this object through rather than hand-writing `isEnabled: true`: content you turned off at `init()` would otherwise ship anyway.
+
 Build it after `init()`. Called before, it warns and returns a policy that records content, and keeps recording it even if a later `init({ content: "none" })` turns that off — the policy is frozen into the object so that spreading it stays safe.
 
 ## Serverless
@@ -329,7 +337,7 @@ The SDK is a thin, opinionated OpenTelemetry setup. Nothing here is a private pr
 
 **`init()`** resolves your configuration and builds two span processors. Unless you passed `registerProvider: false`, it wraps them in a `NodeTracerProvider` and registers that as the global tracer provider, and installs an `AsyncLocalStorage` context manager if none is present — without one, nothing nests and every span is a root span. Your process-wide attribution goes onto the OpenTelemetry resource, where it is written once per export rather than once per span. The precedence above is about span attributes; the resource copy is the configuration as `init()` resolved it, and a scope that overrides one of those keys does not change it.
 
-**`instrument(client)`** does two separate things. It patches the client's _class_ through the OpenLLMetry instrumentation package for that provider, which is what creates the spans — and because prototypes are shared, that turns on span creation for every client of that class in the process, including ones you never passed in. And it wraps the _instance's_ known methods so each call runs inside its attribution scope. Only instrumented instances carry client-bound attribution; spans from the others get the ambient scope and the `init()` defaults.
+**`instrument(client)`** does two separate things. It patches the client's _class_ through the OpenLLMetry instrumentation package for that provider, which is what creates the spans — and because prototypes are shared, that turns on span creation for every client of that class in the process, including ones you never passed in. And it wraps the _instance's_ known methods so each call runs inside its attribution scope. Only instrumented instances carry client-bound attribution; spans from the others get the ambient scope and the `init()` defaults. Content capture rides that shared prototype too: under the default `content: "full"`, a client you never passed to `instrument()` records its prompts and responses onto its spans, and they are exported like any other.
 
 The class patch loads its instrumentation package on demand, so it is asynchronous. A call made before it lands carries attribution but produces no span, which is why `instrument()` belongs in startup. `await fancy.instrument.ready()` turns that convention into a guarantee, for a test or a short script that cannot rely on startup ordering.
 

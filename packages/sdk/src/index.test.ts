@@ -120,6 +120,31 @@ describe("the fancy object", () => {
     expect(span.attributes["fancysauce.attribution.customer"]).toBe("c");
   });
 
+  it("spans a second client of the same class, without the instrumented one's attribution", async () => {
+    const mem = new InMemorySpanExporter();
+    const { FakeOpenAI, Completions } = fakeOpenAI();
+    sdk = createSdk({
+      exporterFactory: () => mem,
+      instrumentPatch: spanningPatch(Completions),
+    });
+    sdk.init({ apiKey: "fs_test_x", attribution: { environment: "prod" } });
+    sdk.instrument(new FakeOpenAI(), { attribution: { product: "support-chat" } });
+    await sdk.instrument.ready();
+    // The class patch is what creates spans, and prototypes are shared: this
+    // client produces one despite never reaching instrument(). What it cannot
+    // carry is the other instance's client-bound attribution.
+    const uninstrumented = new FakeOpenAI();
+    await sdk.attribute({ customer: "acme" }, () =>
+      uninstrumented.chat.completions.create({ model: "m" }),
+    );
+    await sdk.forceFlush();
+    const span = mem.getFinishedSpans()[0];
+    expect(span.name).toBe("chat");
+    expect(span.attributes["fancysauce.attribution.product"]).toBeUndefined();
+    expect(span.attributes["fancysauce.attribution.customer"]).toBe("acme");
+    expect(span.attributes["fancysauce.attribution.environment"]).toBe("prod");
+  });
+
   it("turns off the instrumentation's content capture when init() did", () => {
     const seen: { traceContent?: boolean } = {};
     const { FakeOpenAI, Completions } = fakeOpenAI();
