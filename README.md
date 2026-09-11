@@ -60,7 +60,7 @@ An attribution bag is a flat object of category keys to values: `{ customer: "ac
 
 ### The closure form
 
-`attribute(scope, fn)` runs `fn` with `scope` merged over whatever is already active, and is the only form that cannot leak between concurrent flows. It returns exactly what `fn` returns, so an async callback's scope stays open for the whole promise.
+`attribute(scope, fn)` runs `fn` with `scope` merged over whatever is already active, and is the only form that cannot leak between concurrent flows. It returns what `fn` returns, so an async callback's scope stays open for the whole promise. The one exception is `context: "global"`, where a returned thenable is adopted into a native promise — the scope has to be restored after it settles — so what comes back is a promise rather than the thenable itself.
 
 ```ts
 await fancy.attribute({ customer: "acme-42", feature: "refunds" }, async () => {
@@ -95,7 +95,7 @@ When a closure does not fit the shape of your code — a middleware that sets th
 ```ts
 fancy.attribute.start({ customer: req.tenant });
 fancy.attribute.add({ feature: "search" }); // merges into the active scope
-fancy.attribute.end("feature"); // drops one key
+fancy.attribute.end("feature"); // drops one attribution key; reserved keys and metadata cannot be removed this way
 fancy.attribute.end(); // drops the whole scope
 ```
 
@@ -200,11 +200,11 @@ fancy.init({ apiKey, content: "none" });
 ```ts
 fancy.init({
   apiKey,
-  redact: (value, attribute) => value.replace(/[\w.+-]+@[\w.-]+\.\w+/g, "[email]"),
+  redact: (value) => value.replace(/[\w.+-]+@[\w.-]+\.\w+/g, "[email]"),
 });
 ```
 
-The value arrives already serialized — the GenAI conventions carry these as JSON strings, and that is the form exported. `attribute` is the attribute name, so one redactor can treat inputs and outputs differently. A redactor that throws, or that returns anything other than a string, drops the attribute entirely: an unredacted prompt is never the fallback.
+The value arrives already serialized — the GenAI conventions carry these as JSON strings, and that is the form exported. A second argument, omitted above, is the attribute name, so one redactor can treat inputs and outputs differently. A redactor that throws, or that returns anything other than a string, drops the attribute entirely: an unredacted prompt is never the fallback.
 
 ### What leaves the process
 
@@ -233,7 +233,7 @@ Batches are capped separately, by the ingest. When a batch comes back `413 Paylo
 | `registerContextManager` | `boolean`                                      | `true`                         | Install an `AsyncLocalStorage` context manager when none is present. Set `false` when your host installs its own later in startup.                            |
 | `debug`                  | `boolean`                                      | `false`                        | Log SDK internals with `console.debug`.                                                                                                                       |
 
-The whole public surface is the `fancy` object:
+The runtime surface is the `fancy` object:
 
 | Member            | Signature                                                                  |
 | ----------------- | -------------------------------------------------------------------------- |
@@ -244,6 +244,8 @@ The whole public surface is the `fancy` object:
 | `spanProcessors`  | `() => SpanProcessor[]`                                                    |
 | `forceFlush`      | `() => Promise<void>`                                                      |
 | `shutdown`        | `() => Promise<void>`                                                      |
+
+Beside it the package exports `SCHEMA_VERSION` — the wire contract's version, the same constant `@fancysauce/sdk/contract` carries — and the option types the table above refers to: `InitOptions`, `AttributeOptions`, `BagInput`, `InstrumentOptions`, `Scope`, `VercelTelemetry`, and `Fancy`.
 
 Two subpaths sit beside it:
 
@@ -257,6 +259,8 @@ If your application already owns an OpenTelemetry tracer provider, call `fancy.i
 ```ts
 const processors = fancy.spanProcessors(); // stamping + batching/export
 ```
+
+The processors are all you get: the resource is then yours to set. `service.name`, `service.version`, `fancysauce.schema_version`, `fancysauce.sdk.version`, and the `init({ attribution })` copy live on the resource `init()` built for its own provider, so none of them ship unless you put them on yours. Every span still carries the attribution itself, which the stamping processor writes.
 
 ## Vercel AI SDK
 
@@ -306,7 +310,7 @@ Run `init()` at module scope, not inside the handler — a second `init()` is a 
 
 The SDK is a thin, opinionated OpenTelemetry setup. Nothing here is a private protocol.
 
-**`init()`** resolves your configuration and builds a `NodeTracerProvider` with two span processors, then registers it as the global tracer provider. It also installs an `AsyncLocalStorage` context manager if none is present — without one, nothing nests and every span is a root span. Your process-wide attribution goes onto the OpenTelemetry resource, where it is written once per export rather than once per span.
+**`init()`** resolves your configuration and builds a `NodeTracerProvider` with two span processors, then registers it as the global tracer provider. It also installs an `AsyncLocalStorage` context manager if none is present — without one, nothing nests and every span is a root span. Your process-wide attribution goes onto the OpenTelemetry resource, where it is written once per export rather than once per span. The precedence above is about span attributes; the resource copy is the configuration as `init()` resolved it, and a scope that overrides one of those keys does not change it.
 
 **`instrument(client)`** does two separate things. It patches the client's _class_ through the OpenLLMetry instrumentation package for that provider, which is what creates the spans — and because prototypes are shared, that turns on span creation for every client of that class in the process, including ones you never passed in. And it wraps the _instance's_ known methods so each call runs inside its attribution scope. Only instrumented instances carry client-bound attribution; spans from the others get the ambient scope and the `init()` defaults.
 
@@ -316,19 +320,21 @@ The class patch loads its instrumentation package on demand, so it is asynchrono
 
 **The exporter** is OTLP/HTTP JSON to `${endpoint}/v1/traces`, gzipped, with bearer auth, behind a `BatchSpanProcessor` holding at most 512 spans and exporting at most 64 at a time. It retries `429`, `502`, `503`, and `504` with backoff and honors `Retry-After`. A decorator around it enforces the content policy — strip, redact, cap at 256 KB — and implements the `413` halving described above.
 
-Every span also carries `fancysauce.schema_version` and `fancysauce.sdk.version`, so the ingest can read a span emitted by an older SDK without guessing.
+`fancysauce.schema_version` and `fancysauce.sdk.version` are resource attributes, not span attributes — they sit alongside `service.name`, `service.version`, and the `init({ attribution })` copy on the resource shared by every span in an export, so the ingest can read a span emitted by an older SDK without guessing.
 
 ## Supported
 
 Status: early access.
 
-|                      |                  |
-| -------------------- | ---------------- |
-| Node.js              | ≥ 22.11          |
-| `openai`             | ≥ 4.12           |
-| `@anthropic-ai/sdk`  | ≥ 0.30           |
-| `ai` (Vercel AI SDK) | ≥ 4              |
-| Module formats       | ESM and CommonJS |
+|                      |                       |
+| -------------------- | --------------------- |
+| Node.js              | ≥ 22.11 (required)    |
+| `openai`             | tested with `^7.15`   |
+| `@anthropic-ai/sdk`  | tested with `^0.125`  |
+| `ai` (Vercel AI SDK) | tested with 7 (types) |
+| Module formats       | ESM and CommonJS      |
+
+The Node floor is a hard requirement. The client rows are the versions this repository's suite runs against, not a claim about the range that works: the `openai` and `@anthropic-ai/sdk` clients are driven end to end against a fake provider, while `ai` is imported for its types alone, so the telemetry option is checked at build time rather than called.
 
 Instrumented methods:
 
@@ -340,6 +346,8 @@ Instrumented methods:
 `embeddings.create` is wrapped for attribution but is not spanned by the OpenAI instrumentation; it carries attribution onto any span your own code creates around it. `messages.stream` is wrapped for the same reason — it reaches `messages.create` internally, and wrapping it is what keeps that inner call inside your scope.
 
 The provider is detected from the client's own surface rather than from its package, so a subclass, a proxy, or a client built by a wrapper library is recognized the same way.
+
+A client that is neither — no `chat.completions.create`, no `responses.create`, no `messages.create` — makes `instrument()` throw rather than hand the client back unwrapped, naming the supported set: an OpenAI client, an Anthropic client, and `fancy.vercelTelemetry()` for the Vercel AI SDK. Silently returning it would look identical to success and produce no attribution at all.
 
 Runtime notes:
 
