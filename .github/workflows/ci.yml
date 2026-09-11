@@ -3,36 +3,67 @@ on:
   pull_request:
   push:
     branches: [main]
+  # Present so a merge queue, if one is ever enabled, runs these checks on the
+  # queued group rather than skipping straight to merge.
+  merge_group:
+permissions:
+  contents: read
+concurrency:
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
 jobs:
   checks:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
+      # These versions are baked into the branch-protection required-check names
+      # `checks (22)` and `checks (24)`. Change the matrix and the required
+      # checks together, or merges block on a check that can never report.
       matrix: { node: [22, 24] }
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
       - uses: actions/setup-node@v4
         with: { node-version: "${{ matrix.node }}", cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm check:internal-refs
       - name: Check commit messages and PR body for internal references
         if: github.event_name == 'pull_request'
-        env: { BODY: "${{ github.event.pull_request.body }}" }
+        shell: bash
+        env:
+          BODY: ${{ github.event.pull_request.body }}
+          BASE_REF: ${{ github.base_ref }}
         run: |
-          git log --format=%B origin/${{ github.base_ref }}..HEAD | node scripts/check-internal-refs.mjs --stdin
+          set -euo pipefail
+          git log --format=%B "origin/${BASE_REF}..HEAD" > "${RUNNER_TEMP}/commits.txt"
+          node scripts/check-internal-refs.mjs "${RUNNER_TEMP}/commits.txt"
           printf '%s' "$BODY" | node scripts/check-internal-refs.mjs --stdin
       - run: pnpm lint
       - run: pnpm format
       - run: pnpm typecheck
       - run: pnpm build
       - run: pnpm test
+  # Deliberately not a required check: an advisory against a transitive dev
+  # dependency would otherwise block every unrelated pull request.
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
       - run: pnpm audit --audit-level=high
+  # The action image bundles `@commitlint/config-conventional`, so this job needs
+  # no install step to resolve the config named below.
   commitlint:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
-      - uses: wagoid/commitlint-github-action@v6
+      - uses: wagoid/commitlint-github-action@b948419dd99f3fd78a6548d48f94e3df7f6bf3ed # v6.2.1
         with: { configFile: .commitlintrc.json }

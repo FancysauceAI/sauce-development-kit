@@ -2,18 +2,21 @@ name: Release
 on:
   push:
     branches: [main]
-permissions:
-  contents: write
-  packages: write
-  pull-requests: write
-  id-token: write
+concurrency:
+  group: release
+  cancel-in-progress: false
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      packages: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
       - uses: actions/setup-node@v4
         with:
           {
@@ -23,11 +26,19 @@ jobs:
             scope: "@fancysauce",
           }
       - run: pnpm install --frozen-lockfile
-      - uses: changesets/action@v1
+      # The release pull request is opened as the app, not as `GITHUB_TOKEN`:
+      # events raised by `GITHUB_TOKEN` never start a workflow, so a release
+      # pull request opened with it would sit with no CI run at all.
+      - uses: actions/create-github-app-token@v2
+        id: app-token
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+      - uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
         with:
           publish: pnpm release
           title: "chore: release"
           commit: "chore: release"
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
