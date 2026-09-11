@@ -31,15 +31,23 @@ function fakeOpenAI(ctx: AttributionContext, calls: Call[]) {
   return { OpenAIish, Completions };
 }
 
+/** What a stub patch reports as the scope of the spans it turns on. */
+const PATCHED_SCOPE = "test-instrumentation";
+
 describe("InstrumentRegistry", () => {
   let ctx: AttributionContext;
   let calls: Call[];
   let patch: Mock<ClassPatch>;
+  let scopes: Set<string>;
 
   beforeEach(() => {
     ctx = new AttributionContext({ mode: "auto" });
     calls = [];
-    patch = vi.fn<ClassPatch>(() => Promise.resolve(true));
+    scopes = new Set();
+    patch = vi.fn<ClassPatch>((_provider, _ctor, opts) => {
+      opts.allowScope(PATCHED_SCOPE);
+      return Promise.resolve(true);
+    });
     resetDiagnostics();
   });
 
@@ -49,7 +57,7 @@ describe("InstrumentRegistry", () => {
   });
 
   const registry = (): InstrumentRegistry =>
-    new InstrumentRegistry(ctx, { patch, traceContent: true });
+    new InstrumentRegistry(ctx, { patch, traceContent: true, scopes });
 
   it("applies the client's attribution to every call made on it", async () => {
     const { OpenAIish } = fakeOpenAI(ctx, calls);
@@ -129,11 +137,22 @@ describe("InstrumentRegistry", () => {
     expect(patch.mock.calls[0][2].traceContent).toBe(true);
   });
 
+  it("adds the scope the patch reports to the filter's allow-list", async () => {
+    const { OpenAIish } = fakeOpenAI(ctx, calls);
+    const reg = registry();
+    reg.instrument(new OpenAIish());
+    await reg.ready();
+    // The spans the patch turns on carry this scope, and the filter ahead of
+    // the export queue lets them through on nothing else.
+    expect([...scopes]).toEqual([PATCHED_SCOPE]);
+  });
+
   it("calls the method the class patch installed, even when the patch lands later", async () => {
     const { OpenAIish, Completions } = fakeOpenAI(ctx, calls);
     const patched: string[] = [];
     const reg = new InstrumentRegistry(ctx, {
       traceContent: false,
+      scopes,
       patch: async () => {
         await Promise.resolve();
         // Stands in for a prototype patch, which takes the method value and
@@ -191,6 +210,7 @@ describe("InstrumentRegistry", () => {
     const { OpenAIish } = fakeOpenAI(ctx, calls);
     const reg = new InstrumentRegistry(ctx, {
       traceContent: true,
+      scopes,
       patch: () => Promise.resolve(false),
     });
     const client = reg.instrument(new OpenAIish(), { attribution: { customer: "acme" } });
@@ -225,7 +245,7 @@ describe("InstrumentRegistry", () => {
     const { OpenAIish } = fakeOpenAI(next, calls);
     const client = new OpenAIish();
     registry().instrument(client, { attribution: { customer: "a" } });
-    new InstrumentRegistry(next, { patch, traceContent: true }).instrument(client, {
+    new InstrumentRegistry(next, { patch, traceContent: true, scopes }).instrument(client, {
       attribution: { customer: "b" },
     });
     await next.attribute({ product: "p" }, () => client.chat.completions.create({ model: "m" }));
@@ -275,7 +295,7 @@ describe("InstrumentRegistry", () => {
       .fn<ClassPatch>(() => Promise.resolve(true))
       .mockRejectedValueOnce(new Error("import blew up"))
       .mockResolvedValueOnce(false);
-    const reg = new InstrumentRegistry(ctx, { traceContent: true, patch: attempts });
+    const reg = new InstrumentRegistry(ctx, { traceContent: true, patch: attempts, scopes });
     for (let i = 0; i < 3; i++) {
       reg.instrument(new OpenAIish());
       await reg.ready();
@@ -291,6 +311,7 @@ describe("InstrumentRegistry", () => {
     const { OpenAIish } = fakeOpenAI(ctx, calls);
     const reg = new InstrumentRegistry(ctx, {
       traceContent: true,
+      scopes,
       patch: () => Promise.reject(new Error("import blew up")),
     });
     const client = reg.instrument(new OpenAIish());

@@ -20,16 +20,22 @@ export interface VercelTelemetry {
 }
 
 /**
- * The tracer is named rather than left to the AI SDK's default so the spans
- * are attributable to this package, and it is resolved per call: the global
- * provider `init()` registers may not exist yet when a module builds its
- * options at import time.
+ * The scope AI SDK 4 and 5 spans carry, because those versions span against
+ * the tracer they are handed. Named rather than left to the AI SDK's default
+ * so the spans are attributable to this package — and exported here because
+ * the scope filter's allow-list has to name it too.
+ */
+export const VERCEL_TRACER_NAME = "@fancysauce/sdk/vercel-ai";
+
+/**
+ * The tracer is resolved per call: the global provider `init()` registers may
+ * not exist yet when a module builds its options at import time.
  */
 export function buildVercelTelemetry(opts: { content: ContentMode }): VercelTelemetry {
   const record = opts.content === "full";
   return {
     isEnabled: true,
-    tracer: trace.getTracer("@fancysauce/sdk/vercel-ai"),
+    tracer: trace.getTracer(VERCEL_TRACER_NAME),
     recordInputs: record,
     recordOutputs: record,
   };

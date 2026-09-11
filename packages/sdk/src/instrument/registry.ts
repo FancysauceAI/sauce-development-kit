@@ -22,6 +22,12 @@ export type ClassPatch = (
 interface RegistryDeps {
   patch?: ClassPatch;
   traceContent: boolean;
+  /**
+   * The scope filter's allow-list. A patch adds the scope its instrumentation
+   * stamps on every span it creates, which is the only thing that lets those
+   * spans past the filter.
+   */
+  scopes: Set<string>;
 }
 
 type Method = (...args: unknown[]) => unknown;
@@ -173,6 +179,7 @@ export class InstrumentRegistry {
       const done = this.patch(provider, ctor, {
         tracerProvider: trace.getTracerProvider(),
         traceContent: this.deps.traceContent,
+        allowScope: (scope) => this.deps.scopes.add(scope),
       })
         .then((ok) => {
           // A patch that did not take is forgotten, so the next instrument()

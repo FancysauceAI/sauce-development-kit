@@ -24,6 +24,7 @@ import {
   type ClassPatch,
   type InstrumentOptions,
 } from "./instrument/registry.js";
+import { createScopeAllowList, ScopeFilterProcessor } from "./processors/scope-filter-processor.js";
 import { StampingProcessor } from "./processors/stamping-processor.js";
 import { SDK_VERSION } from "./version.js";
 import { buildVercelTelemetry, type VercelTelemetry } from "./vercel-telemetry.js";
@@ -33,6 +34,13 @@ export interface SdkInternals {
   exporterFactory?: (cfg: ResolvedConfig) => SpanExporter;
   /** Test seam: replaces the OpenLLMetry class patch instrument() applies. */
   instrumentPatch?: ClassPatch;
+  /**
+   * Test seam: receives the scope allow-list each init() builds. The set is
+   * the SDK's own — there is no option that opens it, because the SDK exports
+   * the spans its wrapped tools emit and nothing else — so this is the only
+   * way to read what instrument() added to it, or to seed another scope.
+   */
+  scopeAllowList?: (scopes: Set<string>) => void;
 }
 
 const PROBE_KEY = createContextKey("fancysauce context manager probe");
@@ -52,6 +60,7 @@ export function createSdk(internals: SdkInternals = {}) {
   let ctx = new AttributionContext({ mode: "auto" });
   let provider: NodeTracerProvider | undefined;
   let processors: SpanProcessor[] = [];
+  let scopes = createScopeAllowList();
   let registry: InstrumentRegistry | undefined;
   // shutdown() releases only what init() claimed. An application that owns the
   // global tracer provider or installed its own context manager keeps both.
@@ -96,6 +105,7 @@ export function createSdk(internals: SdkInternals = {}) {
       registry ??= new InstrumentRegistry(ctx, {
         traceContent: cfg.content === "full",
         patch: internals.instrumentPatch,
+        scopes,
       });
       return registry.instrument(client, opts);
     },
@@ -147,24 +157,35 @@ export function createSdk(internals: SdkInternals = {}) {
     const exporter = raw
       ? new ContentPolicyExporter(raw, { content: resolved.content, redact: resolved.redact })
       : createExporter(resolved);
+    // Rebuilt per init() so a shutdown() cannot leave the scopes of an
+    // instrumentation the retired registry loaded standing in the next one.
+    const nextScopes = createScopeAllowList();
+    internals.scopeAllowList?.(nextScopes);
     const nextProcessors: SpanProcessor[] = [
       new StampingProcessor(nextCtx, {
         attribution: defaults.attribution,
         metadata: {},
         reserved: defaults.reserved,
       }),
-      // Passing these takes the processor off its OTEL_BSP_* environment knobs,
-      // which is the trade: the queue is a memory ceiling and the SDK owns it.
-      // Worst case a span carries three content attributes of 256 KB each, so
-      // 512 queued spans is the ~390 MB ceiling chosen here. The batch stays at
-      // 64 spans because the ingest caps a request at 8 MB and the exporter's
-      // 413 halving is what handles the batches that still exceed it — a
-      // byte-budgeted pre-split is a later optimization.
-      new BatchSpanProcessor(exporter, {
-        maxQueueSize: 512,
-        maxExportBatchSize: 64,
-        scheduledDelayMillis: 2000,
-      }),
+      // The scope filter wraps the batch processor rather than joining it in
+      // this list: processors on a provider are peers, and a peer cannot veto
+      // another, so wrapping is what keeps a foreign span out of the queue
+      // entirely rather than only out of one processor.
+      new ScopeFilterProcessor(
+        // Passing these takes the processor off its OTEL_BSP_* environment
+        // knobs, which is the trade: the queue is a memory ceiling and the SDK
+        // owns it. Worst case a span carries three content attributes of
+        // 256 KB each, so 512 queued spans is the ~390 MB ceiling chosen here.
+        // The batch stays at 64 spans because the ingest caps a request at
+        // 8 MB and the exporter's 413 halving is what handles the batches that
+        // still exceed it — a byte-budgeted pre-split is a later optimization.
+        new BatchSpanProcessor(exporter, {
+          maxQueueSize: 512,
+          maxExportBatchSize: 64,
+          scheduledDelayMillis: 2000,
+        }),
+        nextScopes,
+      ),
     ];
     // registerProvider: false leaves the provider, the resource and the context
     // manager to the host, which builds its own provider from
@@ -216,6 +237,7 @@ export function createSdk(internals: SdkInternals = {}) {
     ctx = nextCtx;
     provider = nextProvider;
     processors = nextProcessors;
+    scopes = nextScopes;
   }
 
   return {
@@ -227,6 +249,8 @@ export function createSdk(internals: SdkInternals = {}) {
      * For applications that own their tracer provider: call
      * `init({ registerProvider: false })` and construct the provider with
      * these, which is the only way an OTel 2.x provider accepts processors.
+     * They forward only this SDK's own AI spans, so attaching them to a
+     * provider the host also feeds its own tracing to is safe.
      *
      * A copy, so a host that sorts or splices what it was handed does not
      * reach the array `forceFlush()` and `shutdown()` drive.
@@ -266,6 +290,7 @@ export function createSdk(internals: SdkInternals = {}) {
         provider = undefined;
         cfg = undefined;
         processors = [];
+        scopes = createScopeAllowList();
         registry = undefined;
         ctx = new AttributionContext({ mode: "auto" });
       }

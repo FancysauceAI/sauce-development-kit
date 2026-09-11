@@ -24,12 +24,20 @@ describe("an instrumentation package that cannot be imported", () => {
     // around it, so this module graph — the adapter and the warning budget it
     // shares — is the mocked one and nothing outside this file sees it.
     const { patchOpenAIClass } = await import("./openai.js");
-    const opts = { tracerProvider: trace.getTracerProvider(), traceContent: true };
+    const scopes: string[] = [];
+    const opts = {
+      tracerProvider: trace.getTracerProvider(),
+      traceContent: true,
+      allowScope: (scope: string) => scopes.push(scope),
+    };
 
     expect(await patchOpenAIClass(class Fake {}, opts)).toBe(false);
     expect(await patchOpenAIClass(class Fake {}, opts)).toBe(false);
 
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0][0]).toMatch(/@traceloop\/instrumentation-openai/);
+    // Nothing was patched, so nothing creates spans under that scope and the
+    // allow-list must not have grown.
+    expect(scopes).toEqual([]);
   });
 });

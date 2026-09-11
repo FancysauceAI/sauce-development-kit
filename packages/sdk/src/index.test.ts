@@ -28,6 +28,9 @@ function fakeOpenAI() {
   return { FakeOpenAI, Completions };
 }
 
+/** The instrumentation scope the stand-in patch below spans with. */
+const PATCH_SCOPE = "openllmetry";
+
 /** Stands in for OpenLLMetry: the class patch is what creates the span. */
 const spanningPatch =
   (
@@ -36,10 +39,13 @@ const spanningPatch =
   ): ClassPatch =>
   (_provider, _ctor, opts) => {
     seen.traceContent = opts.traceContent;
+    // What a real patch does with the scope its instrumentation stamps: the
+    // filter ahead of the export queue lets a span through on nothing else.
+    opts.allowScope(PATCH_SCOPE);
     // eslint-disable-next-line @typescript-eslint/unbound-method -- re-applied with the caller's `this`
     const original = Completions.prototype.create;
     Completions.prototype.create = function (body: unknown) {
-      const span = opts.tracerProvider.getTracer("openllmetry").startSpan("chat");
+      const span = opts.tracerProvider.getTracer(PATCH_SCOPE).startSpan("chat");
       try {
         return original.call(this, body);
       } finally {
@@ -191,7 +197,7 @@ describe("the fancy object", () => {
     sdk.init({ apiKey: "fs_test_x" });
     await sdk.shutdown();
     sdk.init({ apiKey: "fs_test_x" });
-    const tracer = trace.getTracer("app");
+    const tracer = trace.getTracer("ai");
     attribute.start({ customer: "acme" });
     attribute.add({ feature: "search" });
     tracer.startSpan("scoped").end();

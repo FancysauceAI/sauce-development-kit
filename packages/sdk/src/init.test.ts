@@ -52,7 +52,7 @@ describe("init", () => {
       // closure form.
       await Promise.resolve();
       trace
-        .getTracer("app")
+        .getTracer("ai")
         .startSpan("chat", { attributes: { "gen_ai.input.messages": "secret" } })
         .end();
     });
@@ -75,7 +75,7 @@ describe("init", () => {
       apiKey: "fs_test_x",
       attribution: { environment: "prod", member: "ops@example.com" },
     });
-    const tracer = trace.getTracer("app");
+    const tracer = trace.getTracer("ai");
     tracer.startSpan("plain").end();
     sdk.attribute({ environment: "staging" }, () => tracer.startSpan("scoped").end());
     tracer.startSpan("instrumented", { attributes: { "user.email": "caller@example.com" } }).end();
@@ -94,7 +94,7 @@ describe("init", () => {
     const mem = new InMemorySpanExporter();
     sdk = createSdk({ exporterFactory: () => mem });
     sdk.init({ apiKey: "fs_test_x", attribution: { member: "ops@example.com" } });
-    sdk.attribute({ member: "u_9" }, () => trace.getTracer("app").startSpan("scoped").end());
+    sdk.attribute({ member: "u_9" }, () => trace.getTracer("ai").startSpan("scoped").end());
     await sdk.forceFlush();
     const attrs = mem.getFinishedSpans()[0].attributes;
     expect(attrs["user.id"]).toBe("u_9");
@@ -133,7 +133,7 @@ describe("init", () => {
     const mem = new InMemorySpanExporter();
     sdk = createSdk({ exporterFactory: () => mem });
     sdk.init({ apiKey: "fs_test_x" });
-    const tracer = trace.getTracer("app");
+    const tracer = trace.getTracer("ai");
     const parent = tracer.startSpan("parent");
     context.with(trace.setSpan(context.active(), parent), () => {
       tracer.startSpan("child").end();
@@ -150,7 +150,7 @@ describe("init", () => {
     sdk = createSdk({ exporterFactory: () => mem });
     sdk.init({ apiKey: "fs_test_x", registerContextManager: false });
     expect(set).not.toHaveBeenCalled();
-    const tracer = trace.getTracer("app");
+    const tracer = trace.getTracer("ai");
     const parent = tracer.startSpan("parent");
     context.with(trace.setSpan(context.active(), parent), () => {
       tracer.startSpan("child").end();
@@ -181,13 +181,13 @@ describe("init", () => {
     const pool = [first, second];
     sdk = createSdk({ exporterFactory: () => pool.shift()! });
     sdk.init({ apiKey: "fs_test_x" });
-    trace.getTracer("app").startSpan("one").end();
+    trace.getTracer("ai").startSpan("one").end();
     await sdk.forceFlush();
     // Read before shutdown: InMemorySpanExporter drops what it collected there.
     expect(first.getFinishedSpans().map((s) => s.name)).toEqual(["one"]);
     await sdk.shutdown();
     sdk.init({ apiKey: "fs_test_x" });
-    trace.getTracer("app").startSpan("two").end();
+    trace.getTracer("ai").startSpan("two").end();
     await sdk.forceFlush();
     expect(second.getFinishedSpans().map((s) => s.name)).toEqual(["two"]);
   });
@@ -204,7 +204,7 @@ describe("init", () => {
     // the silent kind: it builds a provider that never becomes global, and
     // every span after it goes nowhere.
     sdk.init({ apiKey: "fs_test_x" });
-    trace.getTracer("app").startSpan("after").end();
+    trace.getTracer("ai").startSpan("after").end();
     await sdk.forceFlush();
     expect(second.getFinishedSpans().map((s) => s.name)).toEqual(["after"]);
   });
@@ -228,7 +228,7 @@ describe("init", () => {
     hostProvider.register();
     await sdk.attribute({ customer: "acme" }, async () => {
       await Promise.resolve();
-      trace.getTracer("app").startSpan("chat").end();
+      trace.getTracer("ai").startSpan("chat").end();
     });
     await sdk.forceFlush();
     const span = mem.getFinishedSpans()[0];
@@ -254,8 +254,67 @@ describe("init", () => {
     await sdk.shutdown();
     // A disabled global hands out a no-op tracer, so a span that still reaches
     // the host's exporter is the proof that shutdown() left the global alone.
-    trace.getTracer("app").startSpan("after-shutdown").end();
+    trace.getTracer("ai").startSpan("after-shutdown").end();
     expect(host.getFinishedSpans().map((s) => s.name)).toEqual(["after-shutdown"]);
+    await hostProvider.shutdown();
+    warn.mockRestore();
+  });
+
+  it("exports the AI SDK's spans and drops the application's own, naming the scope once", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const mem = new InMemorySpanExporter();
+    sdk = createSdk({ exporterFactory: () => mem });
+    sdk.init({ apiKey: "fs_test_x" });
+    trace.getTracer("ai").startSpan("generateText").end();
+    trace.getTracer("my-app").startSpan("handle-request").end();
+    trace.getTracer("my-app").startSpan("query-db").end();
+    await sdk.forceFlush();
+    // init() owns the global tracer provider, so every one of these reached
+    // the SDK's processors. Only the AI SDK's leaves the process.
+    expect(mem.getFinishedSpans().map((s) => s.name)).toEqual(["generateText"]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toContain('"my-app"');
+    expect(warn.mock.calls[0][0]).toContain("registerProvider: false");
+    warn.mockRestore();
+  });
+
+  it("keeps the parent span id of an exported span whose parent was dropped", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const mem = new InMemorySpanExporter();
+    sdk = createSdk({ exporterFactory: () => mem });
+    sdk.init({ apiKey: "fs_test_x" });
+    const parent = trace.getTracer("my-app").startSpan("handle-request");
+    context.with(trace.setSpan(context.active(), parent), () => {
+      trace.getTracer("ai").startSpan("generateText").end();
+    });
+    parent.end();
+    await sdk.forceFlush();
+    const spans = mem.getFinishedSpans();
+    expect(spans.map((s) => s.name)).toEqual(["generateText"]);
+    // Dropping is an export decision, not a context one: the trace arrives
+    // with a parent the ingest never sees, which is what stitches it back to
+    // the host's own tracing when the host exports that half itself.
+    expect(spans[0].parentSpanContext?.spanId).toBe(parent.spanContext().spanId);
+    warn.mockRestore();
+  });
+
+  it("drops a host provider's foreign spans from its own pipeline alone", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const ours = new InMemorySpanExporter();
+    const host = new InMemorySpanExporter();
+    sdk = createSdk({ exporterFactory: () => ours });
+    sdk.init({ apiKey: "fs_test_x", registerProvider: false });
+    const hostProvider = new NodeTracerProvider({
+      spanProcessors: [new SimpleSpanProcessor(host), ...sdk.spanProcessors()],
+    });
+    hostProvider.register();
+    trace.getTracer("my-app").startSpan("handle-request").end();
+    trace.getTracer("ai").startSpan("generateText").end();
+    await sdk.forceFlush();
+    expect(ours.getFinishedSpans().map((s) => s.name)).toEqual(["generateText"]);
+    // The host's own processor still sees both, which is what makes the drop
+    // this SDK's alone rather than a hole in the host's tracing.
+    expect(host.getFinishedSpans().map((s) => s.name)).toEqual(["handle-request", "generateText"]);
     await hostProvider.shutdown();
     warn.mockRestore();
   });
@@ -267,10 +326,10 @@ describe("init", () => {
     sdk.init({ apiKey: "fs_test_x" });
     await attribute({ customer: "acme" }, async () => {
       await Promise.resolve();
-      trace.getTracer("app").startSpan("chat").end();
+      trace.getTracer("ai").startSpan("chat").end();
     });
     attribute.start({ feature: "search" });
-    trace.getTracer("app").startSpan("after-start").end();
+    trace.getTracer("ai").startSpan("after-start").end();
     attribute.end();
     await sdk.forceFlush();
     const spans = mem.getFinishedSpans();

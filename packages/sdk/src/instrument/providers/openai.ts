@@ -57,6 +57,9 @@ export async function patchOpenAIClass(ctor: unknown, opts: PatchOptions): Promi
     enrichTokens: false,
   });
   inst.setTracerProvider(opts.tracerProvider);
+  // Before the patch, not after: the first span can be created the moment the
+  // prototypes are wrapped.
+  opts.allowScope(inst.instrumentationName);
   inst.manuallyInstrument(ctor);
   return true;
 }

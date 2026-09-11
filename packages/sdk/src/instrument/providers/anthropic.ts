@@ -47,6 +47,9 @@ export async function patchAnthropicClass(ctor: unknown, opts: PatchOptions): Pr
     traceContent: opts.traceContent,
   });
   inst.setTracerProvider(opts.tracerProvider);
+  // See the note in ./openai.ts: recorded before the patch, because a span can
+  // exist as soon as the prototypes are wrapped.
+  opts.allowScope(inst.instrumentationName);
   // The parameter is declared as the whole module namespace, but the body
   // reads only `.Anthropic` and the statics under it, so the cast is over the
   // type and not over anything the call touches.
