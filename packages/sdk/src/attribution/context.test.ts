@@ -2,7 +2,7 @@
    deliberately async with nothing to await: what is under test is that
    attribute() handles a promise-returning callback at all. */
 import { beforeEach, describe, expect, it } from "vitest";
-import { resetDiagnostics } from "../diagnostics.js";
+import { resetDiagnostics, setDebug } from "../diagnostics.js";
 import { AttributionContext } from "./context.js";
 
 function captureWarnings(): { warns: string[]; restore: () => void } {
@@ -128,5 +128,104 @@ describe("AttributionContext (global mode)", () => {
       restore();
     }
     expect(warns).toEqual([]);
+  });
+
+  it("notes that the global scope moved under a running attribute(), and restores anyway", async () => {
+    const debugs: string[] = [];
+    const orig = console.debug;
+    console.debug = (message: string) => {
+      debugs.push(message);
+    };
+    setDebug(true);
+    try {
+      const ctx = new AttributionContext({ mode: "global" });
+      await ctx.attribute({ product: "p" }, async () => {
+        ctx.attribute.start({ customer: "acme" });
+      });
+      expect(ctx.current().attribution).toEqual({});
+    } finally {
+      console.debug = orig;
+    }
+    expect(debugs.some((d) => d.includes("single-flow"))).toBe(true);
+  });
+
+  it("restores after a thenable the callback returns, not just a promise", async () => {
+    const ctx = new AttributionContext({ mode: "global" });
+    const thenable = {
+      then: (ok: (value: string) => void): void => void setTimeout(() => ok("done"), 1),
+    };
+    const out = ctx.attribute({ customer: "acme" }, () => thenable);
+    expect(ctx.current().attribution).toEqual({ customer: "acme" });
+    expect(await out).toBe("done");
+    expect(ctx.current().attribution).toEqual({});
+  });
+});
+
+describe("AttributionContext (scope immutability and diagnostics)", () => {
+  let ctx: AttributionContext;
+  beforeEach(() => {
+    resetDiagnostics();
+    ctx = new AttributionContext({ mode: "auto" });
+  });
+
+  it("hands out a scope the caller cannot mutate", () => {
+    const bag = ctx.current().attribution as Record<string, string>;
+    expect(() => (bag.customer = "acme")).toThrow(TypeError);
+    expect(ctx.current().attribution).toEqual({});
+    expect(new AttributionContext({ mode: "auto" }).current().attribution).toEqual({});
+  });
+
+  it("stops warning after the dedupe set fills, with one notice that it has", async () => {
+    const { warns, restore } = captureWarnings();
+    const bag: Record<string, string> = {};
+    for (let i = 0; i < 100; i++) bag[`Bad Key ${i}`] = "x";
+    try {
+      await ctx.attribute(bag, async () => {});
+    } finally {
+      restore();
+    }
+    expect(warns).toHaveLength(65);
+    expect(warns.at(-1)).toMatch(/further attribution warnings suppressed/);
+  });
+
+  it("names the bag a dropped key came from", async () => {
+    const { warns, restore } = captureWarnings();
+    try {
+      await ctx.attribute({ "Bad Key": "x" }, { metadata: { "Bad Key": "x" } }, async () => {});
+    } finally {
+      restore();
+    }
+    expect(warns).toEqual([
+      '[fancysauce] attribution key "Bad Key" dropped (invalid-key)',
+      '[fancysauce] metadata key "Bad Key" dropped (invalid-key)',
+    ]);
+  });
+
+  it("refuses a call with no callback", () => {
+    // @ts-expect-error — the missing callback is the point of the test.
+    expect(() => ctx.attribute({ customer: "acme" })).toThrow(TypeError);
+  });
+
+  it("refuses start() on a runtime without enterWith()", () => {
+    // @ts-expect-error — stubbing the private store to stand in for such a runtime.
+    ctx["als"].enterWith = undefined;
+    expect(() => ctx.attribute.start({ customer: "acme" })).toThrow(/enterWith/);
+  });
+
+  it("leaks start() into the caller when it runs before the callee's first await", async () => {
+    async function early(): Promise<void> {
+      ctx.attribute.start({ customer: "early" });
+      await Promise.resolve();
+    }
+    await early();
+    expect(ctx.current().attribution).toEqual({ customer: "early" });
+
+    const after = new AttributionContext({ mode: "auto" });
+    async function late(): Promise<void> {
+      await Promise.resolve();
+      after.attribute.start({ customer: "late" });
+    }
+    await late();
+    expect(after.current().attribution).toEqual({});
   });
 });

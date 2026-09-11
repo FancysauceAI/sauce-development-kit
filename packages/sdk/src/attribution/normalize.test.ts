@@ -81,8 +81,12 @@ describe("normalizeBag", () => {
     expect(r.attribution).toEqual({ customer: "first" });
     expect(r.dropped).toEqual([{ key: "customer", rawKey: "customer", reason: "duplicate-key" }]);
   });
-  it("coerces numbers and booleans to strings", () => {
-    expect(normalizeBag({ tier: 3, beta: true }).attribution).toEqual({ tier: "3", beta: "true" });
+  it("coerces numbers, booleans, and bigints to strings", () => {
+    expect(normalizeBag({ tier: 3, beta: true, seq: 9007199254740993n }).attribution).toEqual({
+      tier: "3",
+      beta: "true",
+      seq: "9007199254740993",
+    });
   });
 });
 

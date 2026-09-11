@@ -3,9 +3,9 @@ import { debug, warnOnce } from "../diagnostics.js";
 import { normalizeBag, normalizeMetadata, type BagInput, type DroppedKey } from "./normalize.js";
 
 export interface Scope {
-  attribution: Record<string, string>;
-  metadata: Record<string, string>;
-  reserved: Record<string, string>;
+  attribution: Readonly<Record<string, string>>;
+  metadata: Readonly<Record<string, string>>;
+  reserved: Readonly<Record<string, string>>;
 }
 
 export interface AttributeOptions {
@@ -14,11 +14,26 @@ export interface AttributeOptions {
 
 export type ContextMode = "auto" | "global";
 
-const EMPTY: Scope = Object.freeze({ attribution: {}, metadata: {}, reserved: {} });
+// Every flow with no scope of its own is handed this one object, so the inner
+// bags are frozen too: a caller that writes to what current() returned would
+// otherwise be writing into every other flow's empty scope.
+const EMPTY: Scope = Object.freeze({
+  attribution: Object.freeze({}),
+  metadata: Object.freeze({}),
+  reserved: Object.freeze({}),
+});
 
-function reportDrops(dropped: DroppedKey[]): void {
+type BagKind = "attribution" | "metadata";
+
+// The warning quotes the key as the caller wrote it; the dedupe key uses the
+// normalized form, capped, because that is what the caller can act on and the
+// budget is counted in distinct keys.
+function reportDrops(dropped: DroppedKey[], kind: BagKind): void {
   for (const d of dropped)
-    warnOnce(`drop:${d.key}`, `attribution key "${d.rawKey}" dropped (${d.reason})`);
+    warnOnce(
+      `${kind}:${d.reason}:${d.key.slice(0, 64)}`,
+      `${kind} key "${d.rawKey}" dropped (${d.reason})`,
+    );
 }
 
 function merge(base: Scope, bag: BagInput, opts?: AttributeOptions): Scope {
@@ -26,12 +41,17 @@ function merge(base: Scope, bag: BagInput, opts?: AttributeOptions): Scope {
   const m = opts?.metadata
     ? normalizeMetadata(opts.metadata)
     : { metadata: {}, dropped: [] as DroppedKey[] };
-  reportDrops([...n.dropped, ...m.dropped]);
+  reportDrops(n.dropped, "attribution");
+  reportDrops(m.dropped, "metadata");
   return {
     attribution: { ...base.attribution, ...n.attribution },
     metadata: { ...base.metadata, ...m.metadata },
     reserved: { ...base.reserved, ...n.reserved },
   };
+}
+
+function isThenable(value: unknown): value is PromiseLike<unknown> {
+  return typeof (value as { then?: unknown } | null | undefined)?.then === "function";
 }
 
 /** The closure form, which is the only form that cannot leak between flows. */
@@ -41,6 +61,14 @@ interface AttributeCall {
 }
 
 export interface AttributeFn extends AttributeCall {
+  /**
+   * `start()` binds the current synchronous execution context and every
+   * continuation created from it afterwards — the function you call it in,
+   * everything it awaits later, and, if called before that function's first
+   * `await`, the caller too. `end()` follows the same rule. Call them at a
+   * request or job boundary; when several flows share a process, prefer the
+   * closure form, which cannot leak.
+   */
   start(bag: BagInput, opts?: AttributeOptions): void;
   add(bag: BagInput, opts?: AttributeOptions): void;
   /** Removes one attribution key, or the whole scope when called with none. */
@@ -54,6 +82,13 @@ export interface AttributeFn extends AttributeCall {
  * through the same async_hooks continuation, so a span created inside a scope
  * always sees it in onStart. "global" mode is declared single-flow (scripts,
  * batch jobs): one process-wide bag, no async isolation, no warnings.
+ *
+ * `start()` binds the current synchronous execution context and every
+ * continuation created from it afterwards — the function you call it in,
+ * everything it awaits later, and, if called before that function's first
+ * `await`, the caller too. `end()` follows the same rule. Call them at a
+ * request or job boundary; when several flows share a process, prefer the
+ * closure form, which cannot leak.
  */
 export class AttributionContext {
   private readonly als: AsyncLocalStorage<Scope> | null;
@@ -84,6 +119,8 @@ export class AttributionContext {
   private run<T>(bag: BagInput, optsOrFn: AttributeOptions | (() => T), maybeFn?: () => T): T {
     const fn = typeof optsOrFn === "function" ? optsOrFn : (maybeFn as () => T);
     const opts = typeof optsOrFn === "function" ? undefined : optsOrFn;
+    if (typeof fn !== "function")
+      throw new TypeError("fancy.attribute(bag[, options], fn) requires a callback");
     const next = merge(this.current(), bag, opts);
     debug("attribute", next);
     if (this.als) return this.als.run(next, fn);
@@ -92,11 +129,16 @@ export class AttributionContext {
     const prev = this.global;
     this.global = next;
     const restore = (): void => {
+      if (this.global !== next)
+        debug("global scope changed during attribute(); global mode is single-flow");
       this.global = prev;
     };
     try {
       const out = fn();
-      if (out instanceof Promise) return out.finally(restore) as T;
+      // Anything with a then() is awaited, not just a native promise: the
+      // callback may return a library's own thenable and the scope has to
+      // outlive it either way.
+      if (isThenable(out)) return Promise.resolve(out).finally(restore) as T;
       restore();
       return out;
     } catch (e) {
@@ -106,6 +148,7 @@ export class AttributionContext {
   }
 
   private enter(scope: Scope): void {
+    debug("attribute.start", scope);
     if (!this.als) {
       this.global = scope;
       return;
@@ -121,9 +164,9 @@ export class AttributionContext {
   private without(key: string): Scope {
     const cur = this.current();
     const k = key.trim().toLowerCase();
-    return {
-      ...cur,
-      attribution: Object.fromEntries(Object.entries(cur.attribution).filter(([x]) => x !== k)),
-    };
+    const kept = Object.entries(cur.attribution).filter(([x]) => x !== k);
+    if (kept.length === Object.keys(cur.attribution).length)
+      debug("attribute.end: no such attribution key", key);
+    return { ...cur, attribution: Object.fromEntries(kept) };
   }
 }

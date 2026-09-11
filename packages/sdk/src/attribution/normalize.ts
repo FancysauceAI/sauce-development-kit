@@ -6,7 +6,7 @@ import {
   type ReservedKey,
 } from "../contract.js";
 
-export type BagInput = Record<string, string | number | boolean | null | undefined>;
+export type BagInput = Record<string, string | number | bigint | boolean | null | undefined>;
 
 export type DropReason =
   "invalid-key" | "refused-prefix" | "empty-value" | "invalid-value" | "duplicate-key";
