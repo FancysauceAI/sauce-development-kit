@@ -18,11 +18,10 @@ import OpenAI from "openai";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { fancy } from "../../src/index.js";
 import { startFakeOpenAI } from "./fake-openai.js";
-import { attr, startReceiver, type OtlpExportRequest } from "./otlp-receiver.js";
+import { attr, contentBytes, startReceiver, type OtlpExportRequest } from "./otlp-receiver.js";
 import { recordOrCompare } from "./recording.js";
 
 const OUT = join(import.meta.dirname, "out");
-const CONTENT_KEYS = ["gen_ai.input.messages", "gen_ai.output.messages"];
 
 describe("OpenAI end to end", () => {
   let receiver: Awaited<ReturnType<typeof startReceiver>>;
@@ -156,11 +155,7 @@ describe("OpenAI end to end", () => {
 
     // Advisory and recomputed by the ingest: the UTF-8 size of the content
     // attributes as they were exported.
-    const contentBytes = CONTENT_KEYS.reduce(
-      (total, key) => total + Buffer.byteLength(String(attr(a, key)?.stringValue), "utf8"),
-      0,
-    );
-    expect(attr(a, "fancysauce.content.bytes")).toEqual({ intValue: contentBytes });
+    expect(attr(a, "fancysauce.content.bytes")).toEqual({ intValue: contentBytes(a) });
 
     recordOrCompare(join(OUT, "openai-chat.otlp.json"), req.body);
   });

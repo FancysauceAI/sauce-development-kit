@@ -1,5 +1,6 @@
 import { createServer, type Server } from "node:http";
 import { gunzipSync } from "node:zlib";
+import { CONTENT_ATTRIBUTES } from "../../src/contract.js";
 
 export interface Received {
   headers: Record<string, string | string[] | undefined>;
@@ -83,3 +84,17 @@ export interface OtlpExportRequest {
 
 export const attr = (attrs: OtlpKeyValue[], key: string): Record<string, unknown> | undefined =>
   attrs.find((a) => a.key === key)?.value;
+
+/**
+ * `fancysauce.content.bytes` recomputed from the wire, which is what the
+ * ingest does with it: the UTF-8 size of the content attributes as exported.
+ * The keys come from the contract rather than from a per-suite list, and a key
+ * the span does not carry contributes nothing — counting the string
+ * "undefined" would put nine bytes into the total for content that is not
+ * there.
+ */
+export const contentBytes = (attrs: OtlpKeyValue[]): number =>
+  CONTENT_ATTRIBUTES.reduce((total, key) => {
+    const value = attr(attrs, key)?.stringValue;
+    return total + (typeof value === "string" ? Buffer.byteLength(value, "utf8") : 0);
+  }, 0);
