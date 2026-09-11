@@ -283,7 +283,7 @@ The constructor is the only seam — an OpenTelemetry SDK 2.x provider accepts p
 
 The processors are all you get: the resource is yours to set. `service.name`, `service.version`, `fancysauce.schema_version`, `fancysauce.sdk.version`, and the `init({ attribution })` copy live on the resource `init()` builds for its own provider, so none of them ship unless you put them on yours. Every span still carries the attribution itself, which the stamping processor writes.
 
-`fancy.instrument()` works unchanged, but call it after `register()`: it patches the client's class against whatever provider is globally registered at that moment, and before `register()` that is still the no-op one. `forceFlush()` and `shutdown()` drive the SDK's own processors and leave your provider alone.
+`fancy.instrument()` works unchanged, and its order against `register()` does not matter: it binds the OpenTelemetry global proxy provider, which picks up the delegate `register()` installs whenever that happens. Call it after `register()` only when your host registers its provider outside the OpenTelemetry global API — there is no proxy to pick anything up, so what `instrument()` bound stays a no-op. `forceFlush()` and `shutdown()` drive the SDK's own processors and leave your provider alone.
 
 Leaving `registerProvider` at its default while a provider is already registered is not a way to do this, and `init()` warns about it: the provider it built never becomes global, so no span reaches the stamping processor or the exporter.
 
