@@ -1,10 +1,11 @@
-import { trace, type TracerProvider } from "@opentelemetry/api";
+import { trace } from "@opentelemetry/api";
 import type { AttributionContext } from "../attribution/context.js";
 import type { BagInput } from "../attribution/normalize.js";
 import { debug, warnOnce } from "../diagnostics.js";
 import { detectProvider, type Provider } from "./detect.js";
 import { ANTHROPIC_METHODS, patchAnthropicClass } from "./providers/anthropic.js";
 import { OPENAI_METHODS, patchOpenAIClass } from "./providers/openai.js";
+import type { PatchOptions } from "./providers/types.js";
 
 export interface InstrumentOptions {
   /** Attribution applied to every call on this client instance. */
@@ -15,8 +16,7 @@ export interface InstrumentOptions {
 export type ClassPatch = (
   provider: Provider,
   ctor: unknown,
-  tracerProvider: TracerProvider,
-  traceContent: boolean,
+  opts: PatchOptions,
 ) => Promise<boolean>;
 
 interface RegistryDeps {
@@ -73,12 +73,9 @@ const SUPPORTED =
 async function defaultPatch(
   provider: Provider,
   ctor: unknown,
-  tracerProvider: TracerProvider,
-  traceContent: boolean,
+  opts: PatchOptions,
 ): Promise<boolean> {
-  return provider === "openai"
-    ? patchOpenAIClass(ctor, { tracerProvider, traceContent })
-    : patchAnthropicClass(ctor, { tracerProvider, traceContent });
+  return provider === "openai" ? patchOpenAIClass(ctor, opts) : patchAnthropicClass(ctor, opts);
 }
 
 /** The object in the prototype chain that owns `key`, or null if nothing does. */
@@ -173,7 +170,10 @@ export class InstrumentRegistry {
     // because OpenTelemetry's _wrap unwraps an already-wrapped method first.
     if (typeof ctor === "function" && !this.patched.has(ctor)) {
       this.patched.add(ctor);
-      const done = this.patch(provider, ctor, trace.getTracerProvider(), this.deps.traceContent)
+      const done = this.patch(provider, ctor, {
+        tracerProvider: trace.getTracerProvider(),
+        traceContent: this.deps.traceContent,
+      })
         .then((ok) => {
           // A patch that did not take is forgotten, so the next instrument()
           // for this class tries again. The alternative marks a class patched

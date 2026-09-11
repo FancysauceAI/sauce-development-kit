@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { AttributionContext, type Scope } from "../attribution/context.js";
 import { resetDiagnostics } from "../diagnostics.js";
 import { InstrumentRegistry, type ClassPatch } from "./registry.js";
@@ -34,12 +34,12 @@ function fakeOpenAI(ctx: AttributionContext, calls: Call[]) {
 describe("InstrumentRegistry", () => {
   let ctx: AttributionContext;
   let calls: Call[];
-  let patch: ReturnType<typeof vi.fn>;
+  let patch: Mock<ClassPatch>;
 
   beforeEach(() => {
     ctx = new AttributionContext({ mode: "auto" });
     calls = [];
-    patch = vi.fn(() => Promise.resolve(true));
+    patch = vi.fn<ClassPatch>(() => Promise.resolve(true));
     resetDiagnostics();
   });
 
@@ -49,7 +49,7 @@ describe("InstrumentRegistry", () => {
   });
 
   const registry = (): InstrumentRegistry =>
-    new InstrumentRegistry(ctx, { patch: patch as unknown as ClassPatch, traceContent: true });
+    new InstrumentRegistry(ctx, { patch, traceContent: true });
 
   it("applies the client's attribution to every call made on it", async () => {
     const { OpenAIish } = fakeOpenAI(ctx, calls);
@@ -126,7 +126,7 @@ describe("InstrumentRegistry", () => {
     expect(patch).toHaveBeenCalledTimes(1);
     expect(patch.mock.calls[0][0]).toBe("openai");
     expect(patch.mock.calls[0][1]).toBe(OpenAIish);
-    expect(patch.mock.calls[0][3]).toBe(true);
+    expect(patch.mock.calls[0][2].traceContent).toBe(true);
   });
 
   it("calls the method the class patch installed, even when the patch lands later", async () => {
@@ -225,10 +225,9 @@ describe("InstrumentRegistry", () => {
     const { OpenAIish } = fakeOpenAI(next, calls);
     const client = new OpenAIish();
     registry().instrument(client, { attribution: { customer: "a" } });
-    new InstrumentRegistry(next, {
-      patch: patch as unknown as ClassPatch,
-      traceContent: true,
-    }).instrument(client, { attribution: { customer: "b" } });
+    new InstrumentRegistry(next, { patch, traceContent: true }).instrument(client, {
+      attribution: { customer: "b" },
+    });
     await next.attribute({ product: "p" }, () => client.chat.completions.create({ model: "m" }));
     expect(calls[0].scope.attribution).toEqual({ product: "p", customer: "b" });
   });
@@ -273,7 +272,7 @@ describe("InstrumentRegistry", () => {
   it("retries the class patch when an earlier attempt did not take", async () => {
     const { OpenAIish } = fakeOpenAI(ctx, calls);
     const attempts = vi
-      .fn(() => Promise.resolve(true))
+      .fn<ClassPatch>(() => Promise.resolve(true))
       .mockRejectedValueOnce(new Error("import blew up"))
       .mockResolvedValueOnce(false);
     const reg = new InstrumentRegistry(ctx, { traceContent: true, patch: attempts });

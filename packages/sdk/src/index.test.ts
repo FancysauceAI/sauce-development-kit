@@ -34,12 +34,12 @@ const spanningPatch =
     Completions: ReturnType<typeof fakeOpenAI>["Completions"],
     seen: { traceContent?: boolean } = {},
   ): ClassPatch =>
-  (_provider, _ctor, tracerProvider, traceContent) => {
-    seen.traceContent = traceContent;
+  (_provider, _ctor, opts) => {
+    seen.traceContent = opts.traceContent;
     // eslint-disable-next-line @typescript-eslint/unbound-method -- re-applied with the caller's `this`
     const original = Completions.prototype.create;
     Completions.prototype.create = function (body: unknown) {
-      const span = tracerProvider.getTracer("openllmetry").startSpan("chat");
+      const span = opts.tracerProvider.getTracer("openllmetry").startSpan("chat");
       try {
         return original.call(this, body);
       } finally {
