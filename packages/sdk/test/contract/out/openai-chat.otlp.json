@@ -44,12 +44,12 @@
           },
           "spans": [
             {
-              "traceId": "da98d35db67f4763c381d95e189de4da",
-              "spanId": "a96af550dd56ab55",
+              "traceId": "c01646fa65dd0df5af313815d6b8a238",
+              "spanId": "e22d60515f5c1fb4",
               "name": "chat gpt-5-mini",
               "kind": 3,
-              "startTimeUnixNano": "1789102210859000000",
-              "endTimeUnixNano": "1789102210876614625",
+              "startTimeUnixNano": "1789105629641000000",
+              "endTimeUnixNano": "1789105629666354916",
               "attributes": [
                 {
                   "key": "gen_ai.provider.name",
@@ -169,6 +169,12 @@
                   "key": "gen_ai.output.messages",
                   "value": {
                     "stringValue": "[{\"role\":\"assistant\",\"finish_reason\":\"stop\",\"parts\":[{\"type\":\"text\",\"content\":\"Refund started for invoice 4412.\"}]}]"
+                  }
+                },
+                {
+                  "key": "fancysauce.content.bytes",
+                  "value": {
+                    "intValue": 264
                   }
                 }
               ],

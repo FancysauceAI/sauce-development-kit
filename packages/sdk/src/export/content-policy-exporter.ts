@@ -103,6 +103,8 @@ export class ContentPolicyExporter implements SpanExporter {
     if (!CONTENT_ATTRIBUTES.some((key) => span.attributes[key] !== undefined)) return span;
     const attrs: Attributes = { ...span.attributes };
     let truncated = false;
+    let contentBytes = 0;
+    let exported = 0;
     for (const key of CONTENT_ATTRIBUTES) {
       if (attrs[key] === undefined) continue;
       if (this.policy.content === "none") {
@@ -118,8 +120,13 @@ export class ContentPolicyExporter implements SpanExporter {
       const cut = truncateUtf8(value, this.maxBytes);
       if (cut !== value) truncated = true;
       attrs[key] = cut;
+      contentBytes += Buffer.byteLength(cut, "utf8");
+      exported++;
     }
     if (truncated) attrs[ATTR.contentTruncated] = true;
+    // Counted only when content survived the policy: a span the policy stripped
+    // bare would otherwise claim a size of zero rather than no size at all.
+    if (exported > 0) attrs[ATTR.contentBytes] = contentBytes;
     return Object.create(span, { attributes: { value: attrs, enumerable: true } }) as ReadableSpan;
   }
 

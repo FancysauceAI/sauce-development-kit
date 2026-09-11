@@ -12,6 +12,10 @@ export const ATTR = {
   schemaVersion: "fancysauce.schema_version",
   sdkVersion: "fancysauce.sdk.version",
   contentTruncated: "fancysauce.content.truncated",
+  // Total UTF-8 bytes of the content attributes as exported, after redaction
+  // and truncation. Advisory: the ingest recomputes it from the payload it
+  // receives, so it is a cross-check on what arrived, never the source of
+  // truth.
   contentBytes: "fancysauce.content.bytes",
   userEmail: "user.email",
   userId: "user.id",

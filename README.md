@@ -214,6 +214,8 @@ Spans only. Each export is an OTLP/HTTP JSON request to `${endpoint}/v1/traces`,
 
 Each content attribute is capped at 256 KB of UTF-8, cut on a code-point boundary. A span that had anything cut also carries `fancysauce.content.truncated = true`, so a truncated prompt is visible rather than silently short.
 
+Any span that still carries content carries `fancysauce.content.bytes` too — the UTF-8 size of the content attributes as exported, after redaction and truncation. It is advisory: the ingest recomputes the size from what actually arrives, and reads this to notice a disagreement.
+
 Batches are capped separately, by the ingest. When a batch comes back `413 Payload Too Large`, the exporter halves it and retries both halves, so one oversized span cannot hold back everything queued behind it.
 
 ## Configuration

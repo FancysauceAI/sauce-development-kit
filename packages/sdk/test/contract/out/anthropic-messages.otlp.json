@@ -44,12 +44,12 @@
           },
           "spans": [
             {
-              "traceId": "da803f2b43ec813f7dc9bbc93c2c8204",
-              "spanId": "49923d4206a87703",
+              "traceId": "fafa7b02f086d4a8ed353bcece059ba7",
+              "spanId": "25d95ad15e4f90e0",
               "name": "chat claude-sonnet-5",
               "kind": 3,
-              "startTimeUnixNano": "1789102210835000000",
-              "endTimeUnixNano": "1789102210853482208",
+              "startTimeUnixNano": "1789105629619000000",
+              "endTimeUnixNano": "1789105629651589292",
               "attributes": [
                 {
                   "key": "gen_ai.provider.name",
@@ -187,6 +187,12 @@
                   "key": "gen_ai.output.messages",
                   "value": {
                     "stringValue": "[{\"role\":\"assistant\",\"finish_reason\":\"stop\",\"parts\":[{\"type\":\"text\",\"content\":\"Refund started for invoice 4412.\"}]}]"
+                  }
+                },
+                {
+                  "key": "fancysauce.content.bytes",
+                  "value": {
+                    "intValue": 237
                   }
                 }
               ],

@@ -112,6 +112,33 @@ describe("ContentPolicyExporter", () => {
     expect(attrs["fancysauce.content.truncated"]).toBe(true);
   });
 
+  it("reports the exported content size, counting what redaction and truncation left", async () => {
+    const inner = new CaptureExporter();
+    const ex = new ContentPolicyExporter(inner, {
+      content: "full",
+      redact: (value) => value.replaceAll("SECRET", "**"),
+      maxBytes: 4,
+    });
+    await exportOnce(ex, [
+      spanWith({
+        "gen_ai.input.messages": "SECRETSECRET",
+        "gen_ai.system_instructions": "hi",
+      }),
+    ]);
+    const attrs = inner.batches[0][0].attributes;
+    // "****" truncated to 4 bytes, plus "hi".
+    expect(attrs["gen_ai.input.messages"]).toBe("****");
+    expect(attrs["fancysauce.content.bytes"]).toBe(6);
+  });
+
+  it("reports no content size when the policy left no content attribute", async () => {
+    const inner = new CaptureExporter();
+    await exportOnce(new ContentPolicyExporter(inner, { content: "none" }), [
+      spanWith({ "gen_ai.input.messages": "secret", "gen_ai.request.model": "m" }),
+    ]);
+    expect(inner.batches[0][0].attributes["fancysauce.content.bytes"]).toBeUndefined();
+  });
+
   it("drops the attribute and warns when redact throws", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const inner = new CaptureExporter();

@@ -22,6 +22,7 @@ import { attr, startReceiver, type OtlpExportRequest } from "./otlp-receiver.js"
 import { recordOrCompare } from "./recording.js";
 
 const OUT = join(import.meta.dirname, "out");
+const CONTENT_KEYS = ["gen_ai.input.messages", "gen_ai.output.messages"];
 
 describe("OpenAI end to end", () => {
   let receiver: Awaited<ReturnType<typeof startReceiver>>;
@@ -152,6 +153,14 @@ describe("OpenAI end to end", () => {
     });
     expect(attr(a, "gen_ai.prompt.0.content")).toBeUndefined();
     expect(attr(a, "gen_ai.completion.0.content")).toBeUndefined();
+
+    // Advisory and recomputed by the ingest: the UTF-8 size of the content
+    // attributes as they were exported.
+    const contentBytes = CONTENT_KEYS.reduce(
+      (total, key) => total + Buffer.byteLength(String(attr(a, key)?.stringValue), "utf8"),
+      0,
+    );
+    expect(attr(a, "fancysauce.content.bytes")).toEqual({ intValue: contentBytes });
 
     recordOrCompare(join(OUT, "openai-chat.otlp.json"), req.body);
   });
