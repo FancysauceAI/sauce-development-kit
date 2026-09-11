@@ -130,14 +130,17 @@ export class AttributionContext {
     this.global = next;
     const restore = (): void => {
       if (this.global !== next)
-        debug("global scope changed during attribute(); global mode is single-flow");
+        debug(
+          "global scope changed during attribute(); global mode is single-flow; the scope set inside has been discarded",
+        );
       this.global = prev;
     };
     try {
       const out = fn();
       // Anything with a then() is awaited, not just a native promise: the
       // callback may return a library's own thenable and the scope has to
-      // outlive it either way.
+      // outlive it either way. Promise.resolve() adopts it, so what the caller
+      // gets back is a native promise, not the thenable it returned.
       if (isThenable(out)) return Promise.resolve(out).finally(restore) as T;
       restore();
       return out;

@@ -145,6 +145,7 @@ describe("AttributionContext (global mode)", () => {
       expect(ctx.current().attribution).toEqual({});
     } finally {
       console.debug = orig;
+      setDebug(false);
     }
     expect(debugs.some((d) => d.includes("single-flow"))).toBe(true);
   });
@@ -168,7 +169,8 @@ describe("AttributionContext (scope immutability and diagnostics)", () => {
     ctx = new AttributionContext({ mode: "auto" });
   });
 
-  it("hands out a scope the caller cannot mutate", () => {
+  it("hands out an empty scope the caller cannot mutate", () => {
+    // Only the empty scope is frozen; the rest are type-guarded, keeping merge() allocation-free.
     const bag = ctx.current().attribution as Record<string, string>;
     expect(() => (bag.customer = "acme")).toThrow(TypeError);
     expect(ctx.current().attribution).toEqual({});
@@ -185,7 +187,7 @@ describe("AttributionContext (scope immutability and diagnostics)", () => {
       restore();
     }
     expect(warns).toHaveLength(65);
-    expect(warns.at(-1)).toMatch(/further attribution warnings suppressed/);
+    expect(warns.at(-1)).toMatch(/further warnings suppressed/);
   });
 
   it("names the bag a dropped key came from", async () => {

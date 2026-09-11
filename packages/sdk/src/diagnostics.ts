@@ -23,7 +23,7 @@ export function warnOnce(key: string, message: string): void {
   if (warned.size >= WARN_LIMIT) {
     if (suppressed) return;
     suppressed = true;
-    console.warn("[fancysauce] further attribution warnings suppressed");
+    console.warn("[fancysauce] further warnings suppressed");
     return;
   }
   warned.add(key);
