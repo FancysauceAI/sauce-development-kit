@@ -18,5 +18,3 @@ await fancy.attribute({ customer: "acme-42" }, async () => {
 ```
 
 Status: early access. Supported: Node ≥ 22.11, OpenAI SDK ≥ 4.12, Anthropic SDK ≥ 0.30, Vercel AI SDK ≥ 4.
-
-- [Install](#install) · [Quickstart](#quickstart) · [Attribution](#attribution) · [Content and privacy](#content-and-privacy) · [Configuration](#configuration) · [How it works](#how-it-works)
