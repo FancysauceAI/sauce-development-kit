@@ -232,7 +232,7 @@ Batches are capped separately, by the ingest. When a batch comes back `413 Paylo
 | `context`                | `"auto" \| "global"`                           | `"auto"`                       | `"auto"` isolates concurrent flows with `AsyncLocalStorage`. `"global"` is single-flow mode for scripts and batch jobs: one process-wide scope, no isolation.                                   |
 | `registerProvider`       | `boolean`                                      | `true`                         | Build a tracer provider and register it globally. Set `false` to own the provider yourself — see [Bringing your own tracer provider](#bringing-your-own-tracer-provider).                       |
 | `registerContextManager` | `boolean`                                      | `true`                         | Install an `AsyncLocalStorage` context manager when none is present. Set `false` when your host installs its own later in startup. Ignored when `registerProvider` is `false`.                  |
-| `debug`                  | `boolean`                                      | `false`                        | Log SDK internals with `console.debug`.                                                                                                                                                         |
+| `debug`                  | `boolean`                                      | `false`                        | Log SDK internals with `console.debug`: attribution, metadata and reserved key names, and the reason a key was dropped — never the values.                                                      |
 
 The runtime surface is the `fancy` object:
 

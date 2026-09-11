@@ -39,7 +39,11 @@ export interface InitOptions {
    * would otherwise leave two managers disagreeing about the active span.
    */
   registerContextManager?: boolean;
-  /** Log SDK internals with console.debug. */
+  /**
+   * Log SDK internals with console.debug: the attribution, metadata and
+   * reserved key names on each scope, and the reason a key was dropped. Never
+   * the values — those are customer identifiers, and this goes to your logs.
+   */
   debug?: boolean;
 }
 

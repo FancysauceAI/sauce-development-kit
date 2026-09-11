@@ -61,6 +61,18 @@ function merge(base: Scope, bag: BagInput, opts?: AttributeOptions): Scope {
   };
 }
 
+// debug() writes to the host's logs, where an attribution, metadata or reserved
+// value — a customer id, an email address, a ticket number — does not belong.
+// Only the key names travel; the reason a key was dropped is reported
+// separately, by reportDrops().
+function scopeShape(scope: Scope): Record<string, string[]> {
+  return {
+    attribution: Object.keys(scope.attribution),
+    metadata: Object.keys(scope.metadata),
+    reserved: Object.keys(scope.reserved),
+  };
+}
+
 function isThenable(value: unknown): value is PromiseLike<unknown> {
   return typeof (value as { then?: unknown } | null | undefined)?.then === "function";
 }
@@ -133,7 +145,7 @@ export class AttributionContext {
     if (typeof fn !== "function")
       throw new TypeError("fancy.attribute(bag[, options], fn) requires a callback");
     const next = merge(this.current(), bag, opts);
-    debug("attribute", next);
+    debug("attribute", scopeShape(next));
     if (this.als) return this.als.run(next, fn);
     // Global mode has no async isolation to lean on, so the previous scope is
     // restored by hand — after the promise settles when the callback is async.
@@ -162,7 +174,7 @@ export class AttributionContext {
   }
 
   private enter(scope: Scope): void {
-    debug("attribute.start", scope);
+    debug("attribute.start", scopeShape(scope));
     if (!this.als) {
       this.global = scope;
       return;

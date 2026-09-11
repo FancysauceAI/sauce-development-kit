@@ -203,6 +203,32 @@ describe("AttributionContext (scope immutability and diagnostics)", () => {
     ]);
   });
 
+  it("logs the shape of a scope under debug, never its values", async () => {
+    const logged: unknown[] = [];
+    const orig = console.debug;
+    console.debug = (...args: unknown[]) => void logged.push(args);
+    setDebug(true);
+    try {
+      await ctx.attribute(
+        { customer: "acme-42", member: "j.park@example.com" },
+        { metadata: { ticket: "ZD-88213" } },
+        async () => {
+          ctx.attribute.add({ feature: "refunds" });
+        },
+      );
+    } finally {
+      console.debug = orig;
+      setDebug(false);
+    }
+    const text = JSON.stringify(logged);
+    expect(text).toContain("customer");
+    expect(text).toContain("member");
+    expect(text).toContain("ticket");
+    expect(text).not.toContain("acme-42");
+    expect(text).not.toContain("j.park@example.com");
+    expect(text).not.toContain("ZD-88213");
+  });
+
   it("refuses a call with no callback", () => {
     // @ts-expect-error — the missing callback is the point of the test.
     expect(() => ctx.attribute({ customer: "acme" })).toThrow(TypeError);
