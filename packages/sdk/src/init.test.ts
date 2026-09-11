@@ -1,21 +1,33 @@
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { context, trace } from "@opentelemetry/api";
 import { InMemorySpanExporter } from "@opentelemetry/sdk-trace-base";
 import { createSdk } from "./init.js";
 import { resetDiagnostics } from "./diagnostics.js";
 
+const PACKAGE_VERSION = (
+  JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
+    version: string;
+  }
+).version;
+
 describe("init", () => {
   let sdk: ReturnType<typeof createSdk> | undefined;
   afterEach(async () => {
     await sdk?.shutdown();
     trace.disable();
+    // A test that installed a context manager through a path shutdown() does
+    // not own would otherwise leak it into the next test's probe.
+    context.disable();
     resetDiagnostics();
   });
 
   it("requires an apiKey and an http(s) endpoint", () => {
     sdk = createSdk();
     expect(() => sdk!.init({ apiKey: "" })).toThrow(/apiKey/);
-    expect(() => sdk!.init({ apiKey: "k", endpoint: "ingest.example" })).toThrow(/endpoint/);
+    expect(() => sdk!.init({ apiKey: "fs_test_x", endpoint: "ingest.example" })).toThrow(
+      /endpoint/,
+    );
   });
 
   it("stamps resource attributes and process defaults, and exports through the policy", async () => {
@@ -42,10 +54,42 @@ describe("init", () => {
     expect(span.resource.attributes["service.name"]).toBe("support-chat");
     expect(span.resource.attributes["service.version"]).toBe("1.2.3");
     expect(span.resource.attributes["fancysauce.schema_version"]).toBe("1.0.0");
+    expect(span.resource.attributes["fancysauce.sdk.version"]).toBe(PACKAGE_VERSION);
     expect(span.resource.attributes["fancysauce.attribution.environment"]).toBe("prod");
     expect(span.resource.attributes["user.email"]).toBe("ops@example.com");
     expect(span.attributes["fancysauce.attribution.customer"]).toBe("acme");
     expect(span.attributes["gen_ai.input.messages"]).toBeUndefined();
+  });
+
+  it("stamps the process defaults on every span, not only on the resource", async () => {
+    const mem = new InMemorySpanExporter();
+    sdk = createSdk({ exporterFactory: () => mem });
+    sdk.init({
+      apiKey: "fs_test_x",
+      attribution: { environment: "prod", member: "ops@example.com" },
+    });
+    const tracer = trace.getTracer("app");
+    tracer.startSpan("plain").end();
+    sdk.attribute({ environment: "staging" }, () => tracer.startSpan("scoped").end());
+    tracer.startSpan("instrumented", { attributes: { "user.email": "caller@example.com" } }).end();
+    await sdk.forceFlush();
+    const byName = new Map(mem.getFinishedSpans().map((s) => [s.name, s.attributes]));
+    expect(byName.get("plain")?.["fancysauce.attribution.environment"]).toBe("prod");
+    expect(byName.get("plain")?.["user.email"]).toBe("ops@example.com");
+    // An explicit scope key beats the process default.
+    expect(byName.get("scoped")?.["fancysauce.attribution.environment"]).toBe("staging");
+    expect(byName.get("scoped")?.["user.email"]).toBe("ops@example.com");
+    // A reserved attribute the instrumentation set at creation beats it too.
+    expect(byName.get("instrumented")?.["user.email"]).toBe("caller@example.com");
+  });
+
+  it("warns about a default attribution key it had to drop", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    sdk = createSdk({ exporterFactory: () => new InMemorySpanExporter() });
+    sdk.init({ apiKey: "fs_test_x", attribution: { "Bad Key": "x" } });
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('"Bad Key"'));
+    warn.mockRestore();
   });
 
   it("is idempotent — a second init warns and keeps the first configuration", () => {
@@ -77,6 +121,54 @@ describe("init", () => {
     await sdk.forceFlush();
     const child = mem.getFinishedSpans().find((s) => s.name === "child");
     expect(child?.parentSpanContext?.spanId).toBe(parent.spanContext().spanId);
+  });
+
+  it("installs no context manager when registerContextManager is false", async () => {
+    const set = vi.spyOn(context, "setGlobalContextManager");
+    const mem = new InMemorySpanExporter();
+    sdk = createSdk({ exporterFactory: () => mem });
+    sdk.init({ apiKey: "fs_test_x", registerContextManager: false });
+    expect(set).not.toHaveBeenCalled();
+    const tracer = trace.getTracer("app");
+    const parent = tracer.startSpan("parent");
+    context.with(trace.setSpan(context.active(), parent), () => {
+      tracer.startSpan("child").end();
+    });
+    parent.end();
+    await sdk.forceFlush();
+    // Without a manager the no-op one runs the callback but never makes the
+    // context active, so the child is a root span.
+    expect(
+      mem.getFinishedSpans().find((s) => s.name === "child")?.parentSpanContext,
+    ).toBeUndefined();
+    set.mockRestore();
+  });
+
+  it("warns when the context manager cannot be installed", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const set = vi.spyOn(context, "setGlobalContextManager").mockReturnValue(false);
+    sdk = createSdk({ exporterFactory: () => new InMemorySpanExporter() });
+    sdk.init({ apiKey: "fs_test_x" });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("context manager"));
+    set.mockRestore();
+    warn.mockRestore();
+  });
+
+  it("releases the global provider on shutdown so a later init() exports again", async () => {
+    const first = new InMemorySpanExporter();
+    const second = new InMemorySpanExporter();
+    const pool = [first, second];
+    sdk = createSdk({ exporterFactory: () => pool.shift()! });
+    sdk.init({ apiKey: "fs_test_x" });
+    trace.getTracer("app").startSpan("one").end();
+    await sdk.forceFlush();
+    // Read before shutdown: InMemorySpanExporter drops what it collected there.
+    expect(first.getFinishedSpans().map((s) => s.name)).toEqual(["one"]);
+    await sdk.shutdown();
+    sdk.init({ apiKey: "fs_test_x" });
+    trace.getTracer("app").startSpan("two").end();
+    await sdk.forceFlush();
+    expect(second.getFinishedSpans().map((s) => s.name)).toEqual(["two"]);
   });
 
   it("hands out an attribute function that survives being destructured before init", async () => {

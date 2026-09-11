@@ -2,7 +2,7 @@ import { ExportResultCode, type ExportResult } from "@opentelemetry/core";
 import type { Attributes } from "@opentelemetry/api";
 import type { ReadableSpan, SpanExporter } from "@opentelemetry/sdk-trace-base";
 import { ATTR, CONTENT_ATTRIBUTES, CONTENT_ATTRIBUTE_MAX_BYTES } from "../contract.js";
-import { warnOnce } from "../diagnostics.js";
+import { debug, warnOnce } from "../diagnostics.js";
 
 export type ContentMode = "full" | "none";
 
@@ -79,8 +79,14 @@ export class ContentPolicyExporter implements SpanExporter {
     let out: unknown;
     try {
       out = redact(value, key);
-    } catch {
-      out = undefined;
+    } catch (error) {
+      // The two failures need different fixes — a bug inside the redactor
+      // versus a redactor that forgot to return — so they are reported
+      // differently, and the thrown error goes to debug() rather than to the
+      // warning, where it would print a stack trace over the host's logs.
+      debug(`redact() threw for ${key}`, error);
+      warnOnce(`redact:${key}`, `redact() threw for ${key}; the attribute was dropped`);
+      return null;
     }
     if (typeof out === "string") return out;
     warnOnce(

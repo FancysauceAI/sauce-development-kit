@@ -17,18 +17,18 @@ export type ContextMode = "auto" | "global";
 // Every flow with no scope of its own is handed this one object, so the inner
 // bags are frozen too: a caller that writes to what current() returned would
 // otherwise be writing into every other flow's empty scope.
-const EMPTY: Scope = Object.freeze({
+export const EMPTY_SCOPE: Scope = Object.freeze({
   attribution: Object.freeze({}),
   metadata: Object.freeze({}),
   reserved: Object.freeze({}),
 });
 
-type BagKind = "attribution" | "metadata";
+export type BagKind = "attribution" | "metadata";
 
 // The warning quotes the key as the caller wrote it; the dedupe key uses the
 // normalized form, capped, because that is what the caller can act on and the
 // budget is counted in distinct keys.
-function reportDrops(dropped: DroppedKey[], kind: BagKind): void {
+export function reportDrops(dropped: DroppedKey[], kind: BagKind): void {
   for (const d of dropped)
     warnOnce(
       `${kind}:${d.reason}:${d.key.slice(0, 64)}`,
@@ -92,7 +92,7 @@ export interface AttributeFn extends AttributeCall {
  */
 export class AttributionContext {
   private readonly als: AsyncLocalStorage<Scope> | null;
-  private global: Scope = EMPTY;
+  private global: Scope = EMPTY_SCOPE;
   readonly mode: ContextMode;
   readonly attribute: AttributeFn;
 
@@ -108,7 +108,7 @@ export class AttributionContext {
       start: (bag: BagInput, o?: AttributeOptions): void =>
         this.enter(merge(this.current(), bag, o)),
       add: (bag: BagInput, o?: AttributeOptions): void => this.enter(merge(this.current(), bag, o)),
-      end: (key?: string): void => this.enter(key ? this.without(key) : EMPTY),
+      end: (key?: string): void => this.enter(key ? this.without(key) : EMPTY_SCOPE),
     });
   }
 

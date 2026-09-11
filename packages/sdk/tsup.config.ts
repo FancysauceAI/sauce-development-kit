@@ -1,4 +1,12 @@
+import { readFileSync } from "node:fs";
 import { defineConfig } from "tsup";
+
+// The published version is the one in package.json, read here rather than from
+// npm_package_version, which is set only when the build runs through npm/pnpm
+// scripts and silently becomes "0.0.0" when it does not.
+const { version } = JSON.parse(
+  readFileSync(new URL("./package.json", import.meta.url), "utf8"),
+) as { version: string };
 
 export default defineConfig({
   entry: { index: "src/index.ts", contract: "src/contract.ts", vercel: "src/vercel.ts" },
@@ -8,5 +16,5 @@ export default defineConfig({
   clean: true,
   target: "node22",
   external: ["@traceloop/instrumentation-openai", "@traceloop/instrumentation-anthropic"],
-  define: { __SDK_VERSION__: JSON.stringify(process.env.npm_package_version ?? "0.0.0") },
+  define: { __SDK_VERSION__: JSON.stringify(version) },
 });

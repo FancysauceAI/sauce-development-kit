@@ -9,6 +9,7 @@ import {
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 import {
   AttributionContext,
+  reportDrops,
   type AttributeFn,
   type AttributeOptions,
 } from "./attribution/context.js";
@@ -42,6 +43,9 @@ export function createSdk(internals: SdkInternals = {}) {
   let ctx = new AttributionContext({ mode: "auto" });
   let provider: NodeTracerProvider | undefined;
   let processors: SpanProcessor[] = [];
+  // shutdown() releases only what init() claimed. An application that installed
+  // its own context manager keeps it.
+  let installedContextManager = false;
 
   // A stable callable that reads `ctx` at call time rather than at hand-out
   // time. The alternative — exposing ctx.attribute through a getter — breaks
@@ -70,9 +74,12 @@ export function createSdk(internals: SdkInternals = {}) {
     setDebug(resolved.debug);
     const nextCtx = new AttributionContext({ mode: resolved.context });
     const defaults = normalizeBag(resolved.attribution);
-    // Process-wide defaults belong on the resource, not on every span: they are
-    // constant for the life of the process, and the reserved keys among them
-    // are the key-bound identity a single-user tool reports once.
+    reportDrops(defaults.dropped, "attribution");
+    // Process-wide defaults ride on the resource, where they are written once
+    // per export rather than once per span. They are stamped on every span too
+    // (see StampingProcessor's `base`) because the ingest reads identity from
+    // span attributes; the resource copy is what survives a span the SDK's
+    // processor never saw.
     const resource = resourceFromAttributes({
       ...(resolved.name ? { "service.name": resolved.name } : {}),
       ...(resolved.version ? { "service.version": resolved.version } : {}),
@@ -88,8 +95,23 @@ export function createSdk(internals: SdkInternals = {}) {
       ? new ContentPolicyExporter(raw, { content: resolved.content, redact: resolved.redact })
       : createExporter(resolved);
     const nextProcessors: SpanProcessor[] = [
-      new StampingProcessor(nextCtx),
-      new BatchSpanProcessor(exporter, { maxExportBatchSize: 64, scheduledDelayMillis: 2000 }),
+      new StampingProcessor(nextCtx, {
+        attribution: defaults.attribution,
+        metadata: {},
+        reserved: defaults.reserved,
+      }),
+      // Passing these takes the processor off its OTEL_BSP_* environment knobs,
+      // which is the trade: the queue is a memory ceiling and the SDK owns it.
+      // Worst case a span carries three content attributes of 256 KB each, so
+      // 512 queued spans is the ~390 MB ceiling chosen here. The batch stays at
+      // 64 spans because the ingest caps a request at 8 MB and the exporter's
+      // 413 halving is what handles the batches that still exceed it — a
+      // byte-budgeted pre-split is a later optimization.
+      new BatchSpanProcessor(exporter, {
+        maxQueueSize: 512,
+        maxExportBatchSize: 64,
+        scheduledDelayMillis: 2000,
+      }),
     ];
     const nextProvider = new NodeTracerProvider({ resource, spanProcessors: nextProcessors });
     if (!trace.setGlobalTracerProvider(nextProvider)) {
@@ -103,10 +125,14 @@ export function createSdk(internals: SdkInternals = {}) {
     // provider above so the already-registered case stays visible, which leaves
     // the context manager to install here — without one, context.active() never
     // holds a span and every span the application starts is a root span.
-    if (!hasContextManager()) {
+    if (resolved.registerContextManager && !hasContextManager()) {
       const manager = new AsyncLocalStorageContextManager();
       manager.enable();
-      context.setGlobalContextManager(manager);
+      if (context.setGlobalContextManager(manager)) installedContextManager = true;
+      else {
+        manager.disable();
+        warnOnce("init:ctxmgr", "could not install a context manager; spans may not nest");
+      }
     }
     cfg = resolved;
     ctx = nextCtx;
@@ -126,6 +152,15 @@ export function createSdk(internals: SdkInternals = {}) {
     },
     shutdown: async (): Promise<void> => {
       await provider?.shutdown();
+      // The global tracer proxy keeps delegating to a shut-down provider
+      // forever, and setGlobalTracerProvider refuses to replace one that is
+      // still registered — so a shutdown that does not release the global
+      // makes every later init() a no-op that silently drops every span.
+      trace.disable();
+      if (installedContextManager) {
+        context.disable();
+        installedContextManager = false;
+      }
       provider = undefined;
       cfg = undefined;
       processors = [];

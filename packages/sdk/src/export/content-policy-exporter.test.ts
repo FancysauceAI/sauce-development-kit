@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ExportResultCode, type ExportResult } from "@opentelemetry/core";
+import { OTLPExporterError } from "@opentelemetry/otlp-exporter-base";
 import { ROOT_CONTEXT, SpanStatusCode, trace } from "@opentelemetry/api";
 import { JsonTraceSerializer } from "@opentelemetry/otlp-transformer";
 import {
@@ -124,7 +125,9 @@ describe("ContentPolicyExporter", () => {
       spanWith({ "gen_ai.input.messages": "secret", "gen_ai.request.model": "m" }),
     ]);
     expect(inner.batches[0][0].attributes).toEqual({ "gen_ai.request.model": "m" });
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining("gen_ai.input.messages"));
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("redact() threw for gen_ai.input.messages"),
+    );
     warn.mockRestore();
   });
 
@@ -140,7 +143,9 @@ describe("ContentPolicyExporter", () => {
       spanWith({ "gen_ai.input.messages": "secret", "gen_ai.request.model": "m" }),
     ]);
     expect(inner.batches[0][0].attributes).toEqual({ "gen_ai.request.model": "m" });
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining("gen_ai.input.messages"));
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("redact() did not return a string for gen_ai.input.messages"),
+    );
     warn.mockRestore();
   });
 
@@ -251,27 +256,6 @@ describe("ContentPolicyExporter", () => {
     expect(inner.batches).toHaveLength(1);
   });
 
-  it("recognizes the fetch transport's 413, which carries the status only in the message", async () => {
-    const inner = new CaptureExporter();
-    inner.export = (spans, cb) => {
-      inner.batches.push(spans);
-      if (spans.length > 1) {
-        cb({
-          code: ExportResultCode.FAILED,
-          error: new Error("Fetch request failed with non-retryable status 413"),
-        });
-        return;
-      }
-      cb({ code: ExportResultCode.SUCCESS });
-    };
-    const r = await exportOnce(new ContentPolicyExporter(inner, { content: "full" }), [
-      spanWith({ a: "1" }),
-      spanWith({ a: "2" }),
-    ]);
-    expect(r.code).toBe(ExportResultCode.SUCCESS);
-    expect(inner.batches.map((b) => b.length)).toEqual([2, 1, 1]);
-  });
-
   it("an oversized span at the head of the batch does not block the spans behind it", async () => {
     const inner = new CaptureExporter();
     // Span 1 is over the ingest's limit on its own: every batch holding it
@@ -297,6 +281,68 @@ describe("ContentPolicyExporter", () => {
       .filter((b) => !b.some((s) => s.attributes.a === "1"))
       .flatMap((b) => b.map((s) => s.attributes.a));
     expect(delivered).toEqual(["2", "3"]);
+  });
+
+  it("recognizes the node transport's real 413, an OTLPExporterError carrying the status", async () => {
+    const inner = new CaptureExporter();
+    // The shape the OTLP/HTTP node transport actually produces, rather than a
+    // hand-built stand-in: the status lives on `code`, never on `status`.
+    inner.export = (spans, cb) => {
+      inner.batches.push(spans);
+      if (spans.length > 1) {
+        cb({
+          code: ExportResultCode.FAILED,
+          error: new OTLPExporterError("Request Entity Too Large", 413, "batch too large"),
+        });
+        return;
+      }
+      cb({ code: ExportResultCode.SUCCESS });
+    };
+    const r = await exportOnce(new ContentPolicyExporter(inner, { content: "full" }), [
+      spanWith({ a: "1" }),
+      spanWith({ a: "2" }),
+    ]);
+    expect(r.code).toBe(ExportResultCode.SUCCESS);
+    expect(inner.batches.map((b) => b.length)).toEqual([2, 1, 1]);
+  });
+
+  it("recognizes the fetch transport's real 413, a plain Error naming the status", async () => {
+    const inner = new CaptureExporter();
+    inner.export = (spans, cb) => {
+      inner.batches.push(spans);
+      if (spans.length > 1) {
+        cb({
+          code: ExportResultCode.FAILED,
+          // Verbatim from the fetch transport, which keeps the status only here.
+          error: new Error("Fetch request failed with non-retryable status 413"),
+        });
+        return;
+      }
+      cb({ code: ExportResultCode.SUCCESS });
+    };
+    const r = await exportOnce(new ContentPolicyExporter(inner, { content: "full" }), [
+      spanWith({ a: "1" }),
+      spanWith({ a: "2" }),
+    ]);
+    expect(r.code).toBe(ExportResultCode.SUCCESS);
+    expect(inner.batches.map((b) => b.length)).toEqual([2, 1, 1]);
+  });
+
+  it("an OTLPExporterError for a status that is not 413 passes through unchanged", async () => {
+    const inner = new CaptureExporter();
+    inner.export = (spans, cb) => {
+      inner.batches.push(spans);
+      cb({
+        code: ExportResultCode.FAILED,
+        error: new OTLPExporterError("Internal Server Error", 500, "boom"),
+      });
+    };
+    const r = await exportOnce(new ContentPolicyExporter(inner, { content: "full" }), [
+      spanWith({ a: "1" }),
+      spanWith({ a: "2" }),
+    ]);
+    expect(r.code).toBe(ExportResultCode.FAILED);
+    expect(inner.batches).toHaveLength(1);
   });
 
   it("skips the second half only when the first half failed for a reason other than 413", async () => {
