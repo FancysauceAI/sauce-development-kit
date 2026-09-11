@@ -20,5 +20,12 @@ export default tseslint.config(
       "@typescript-eslint/no-explicit-any": "warn",
     },
   },
+  {
+    files: ["scripts/*.mjs"],
+    ...tseslint.configs.disableTypeChecked,
+    languageOptions: {
+      globals: { process: "readonly", console: "readonly" },
+    },
+  },
   { ignores: ["**/dist/", "**/node_modules/", "eslint.config.mjs"] },
 );

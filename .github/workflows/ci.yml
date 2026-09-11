@@ -1,0 +1,38 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: { node: [22, 24] }
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "${{ matrix.node }}", cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check:internal-refs
+      - name: Check commit messages and PR body for internal references
+        if: github.event_name == 'pull_request'
+        env: { BODY: "${{ github.event.pull_request.body }}" }
+        run: |
+          git log --format=%B origin/${{ github.base_ref }}..HEAD | node scripts/check-internal-refs.mjs --stdin
+          printf '%s' "$BODY" | node scripts/check-internal-refs.mjs --stdin
+      - run: pnpm lint
+      - run: pnpm format
+      - run: pnpm typecheck
+      - run: pnpm build
+      - run: pnpm test
+      - run: pnpm audit --audit-level=high
+  commitlint:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: wagoid/commitlint-github-action@v6
+        with: { configFile: .commitlintrc.json }
