@@ -3,6 +3,7 @@ import {
   ATTR,
   CONTENT_ATTRIBUTES,
   KEY_PATTERN,
+  REFUSED_KEY_PREFIXES,
   RESERVED_KEYS,
   SCHEMA_VERSION,
   SOURCE_TYPE,
@@ -17,6 +18,23 @@ describe("contract", () => {
   it("prefixes attribution and metadata attributes", () => {
     expect(ATTR.attributionPrefix).toBe("fancysauce.attribution.");
     expect(ATTR.metadataPrefix).toBe("fancysauce.metadata.");
+  });
+  it("pins every ATTR key so a rename shows up as a diff, not a silent wire break", () => {
+    expect(ATTR).toEqual({
+      attributionPrefix: "fancysauce.attribution.",
+      metadataPrefix: "fancysauce.metadata.",
+      schemaVersion: "fancysauce.schema_version",
+      sdkVersion: "fancysauce.sdk.version",
+      contentTruncated: "fancysauce.content.truncated",
+      contentBytes: "fancysauce.content.bytes",
+      userEmail: "user.email",
+      userId: "user.id",
+      conversationId: "gen_ai.conversation.id",
+      sessionId: "session.id",
+      inputMessages: "gen_ai.input.messages",
+      outputMessages: "gen_ai.output.messages",
+      systemInstructions: "gen_ai.system_instructions",
+    });
   });
   it("lists exactly the three content attributes", () => {
     expect([...CONTENT_ATTRIBUTES]).toEqual([
@@ -33,6 +51,7 @@ describe("contract", () => {
       "user.email": "sean@example.com",
     });
     expect(RESERVED_KEYS.member.toAttributes("u_9")).toEqual({ "user.id": "u_9" });
+    expect(RESERVED_KEYS.member.toAttributes("@handle")).toEqual({ "user.id": "@handle" });
     expect(RESERVED_KEYS.conversation.toAttributes("c1")).toEqual({
       "gen_ai.conversation.id": "c1",
       "session.id": "c1",
@@ -44,5 +63,8 @@ describe("contract", () => {
     expect(KEY_PATTERN.test("Customer")).toBe(false);
     expect(KEY_PATTERN.test("a".repeat(41))).toBe(false);
     expect(VALUE_MAX_LENGTH).toBe(200);
+  });
+  it("refused key prefixes never overlap a valid registry slug", () => {
+    for (const p of REFUSED_KEY_PREFIXES) expect(KEY_PATTERN.test(p + "x")).toBe(false);
   });
 });

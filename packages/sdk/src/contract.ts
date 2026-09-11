@@ -30,10 +30,13 @@ export const CONTENT_ATTRIBUTES = [
 
 // Reserved bag keys are mapped to standard attributes and never emitted as
 // fancysauce.attribution.* — the server refuses them as category keys.
+const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 export const RESERVED_KEYS = {
   member: {
     toAttributes: (v: string): Record<string, string> =>
-      v.includes("@") ? { [ATTR.userEmail]: v.toLowerCase() } : { [ATTR.userId]: v },
+      // Lowercasing the whole address (not just the local part) is deliberate:
+      // it's a stable join key, and providers ignore local-part case.
+      EMAIL_PATTERN.test(v) ? { [ATTR.userEmail]: v.toLowerCase() } : { [ATTR.userId]: v },
   },
   conversation: {
     toAttributes: (v: string): Record<string, string> => ({
@@ -46,6 +49,11 @@ export type ReservedKey = keyof typeof RESERVED_KEYS;
 
 // Category keys are registry slugs: lowercase, 1–40 chars of [a-z0-9_-].
 export const KEY_PATTERN = /^[a-z0-9_-]{1,40}$/;
+
+// These prefixes match complete attribute names a caller might try to smuggle
+// through a per-call override or metadata bag — never registry slugs, which
+// can't contain a dot. The SDK drops any key starting with one before it
+// reaches the wire.
 export const REFUSED_KEY_PREFIXES = ["fancysauce.", "gen_ai.", "user."] as const;
 export const VALUE_MAX_LENGTH = 200;
 export const CONTENT_ATTRIBUTE_MAX_BYTES = 256 * 1024;

@@ -17,6 +17,8 @@
     "dist",
     "README.md"
   ],
+  "main": "./dist/index.cjs",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "import": {
@@ -47,7 +49,8 @@
         "types": "./dist/vercel.d.cts",
         "default": "./dist/vercel.cjs"
       }
-    }
+    },
+    "./package.json": "./package.json"
   },
   "scripts": {
     "build": "tsup",
