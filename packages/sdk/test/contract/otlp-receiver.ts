@@ -9,6 +9,8 @@ export interface Received {
 /**
  * Captures POST /v1/traces bodies and answers 200, so a test can assert on the
  * bytes the SDK actually puts on the wire rather than on an in-memory span.
+ * Any other method or path is a 404 — matching the fakes in this directory,
+ * which answer only the one endpoint their suite calls.
  *
  * The body is gunzipped when the exporter compressed it: `createExporter()`
  * turns gzip on, but a test that builds its own exporter may not, and the
@@ -21,12 +23,27 @@ export async function startReceiver(): Promise<{
 }> {
   const received: Received[] = [];
   const server: Server = createServer((req, res) => {
+    if (req.method !== "POST" || req.url !== "/v1/traces") {
+      res.writeHead(404).end();
+      return;
+    }
     const chunks: Buffer[] = [];
     req.on("data", (c: Buffer) => chunks.push(c));
     req.on("end", () => {
       let buf = Buffer.concat(chunks);
       if (req.headers["content-encoding"] === "gzip") buf = gunzipSync(buf);
-      received.push({ headers: req.headers, body: JSON.parse(buf.toString("utf8")) });
+      // A body that fails to parse would otherwise throw inside this
+      // listener, where nothing catches it and the process crashes instead of
+      // the test failing on a normal assertion.
+      let body: unknown;
+      try {
+        body = JSON.parse(buf.toString("utf8"));
+      } catch (error) {
+        received.push({ headers: req.headers, body: { error: String(error) } });
+        res.writeHead(400, { "content-type": "application/json" }).end("{}");
+        return;
+      }
+      received.push({ headers: req.headers, body });
       res.writeHead(200, { "content-type": "application/json" }).end("{}");
     });
   });

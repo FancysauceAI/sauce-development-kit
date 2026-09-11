@@ -1,0 +1,48 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
+import { expect } from "vitest";
+
+/**
+ * The fields the tracer mints fresh on every run — no two runs ever agree on
+ * these, so the compare has to blank them on both sides before it means
+ * anything.
+ */
+const PER_RUN_FIELDS = new Set([
+  "traceId",
+  "spanId",
+  "parentSpanId",
+  "startTimeUnixNano",
+  "endTimeUnixNano",
+]);
+
+function normalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(normalize);
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([k, v]) => [
+        k,
+        PER_RUN_FIELDS.has(k) ? "<normalized>" : normalize(v),
+      ]),
+    );
+  }
+  return value;
+}
+
+/**
+ * Recording the fixture is a side effect the ingest depends on; comparing
+ * against it is the assertion — the two were previously conflated into an
+ * unconditional write, which made the suite pass even when the wire shape
+ * regressed. Set RECORD_CONTRACT=1 (or delete the file) to re-record, which
+ * is required whenever bumping a `@traceloop/instrumentation-*` package
+ * changes the recorded `scope.version` — that is expected to fail the
+ * compare until re-recorded, not a bug in this helper.
+ */
+export function recordOrCompare(file: string, body: unknown): void {
+  if (process.env.RECORD_CONTRACT === "1" || !existsSync(file)) {
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, JSON.stringify(body, null, 2) + "\n");
+    return;
+  }
+  const recorded: unknown = JSON.parse(readFileSync(file, "utf8"));
+  expect(normalize(body)).toEqual(normalize(recorded));
+}

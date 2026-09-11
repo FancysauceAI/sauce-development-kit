@@ -3,19 +3,21 @@
  * fake Anthropic server, and a fake collector, so what is asserted is the
  * OTLP/HTTP JSON the SDK actually posts rather than an in-memory span.
  *
- * The run records `out/anthropic-messages.otlp.json`, which the ingest vendors
- * as a fixture. Everything in it is fixed except the values the tracer mints
- * per run: `traceId`, `spanId`, `startTimeUnixNano` and `endTimeUnixNano`.
- * Those are deliberately left as recorded — the ingest parses real-shaped ids
- * and timestamps, and scrubbing them would hide a regression in either.
+ * The first run records `out/anthropic-messages.otlp.json`, which the ingest
+ * vendors as a fixture; every run after that compares against it via
+ * `recordOrCompare` (see recording.ts), blanking only the four fields the
+ * tracer mints per run — `traceId`, `spanId`, `startTimeUnixNano` and
+ * `endTimeUnixNano`. The recorded file itself keeps its real-shaped ids and
+ * timestamps, so the ingest still has something realistic to parse against.
+ * Set RECORD_CONTRACT=1 to re-record after an intentional shape change.
  */
-import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { fancy } from "../../src/index.js";
 import { startFakeAnthropic } from "./fake-anthropic.js";
 import { attr, startReceiver, type OtlpExportRequest } from "./otlp-receiver.js";
+import { recordOrCompare } from "./recording.js";
 
 const OUT = join(import.meta.dirname, "out");
 
@@ -69,9 +71,15 @@ describe("Anthropic end to end", () => {
     );
     await fancy.forceFlush();
 
-    // The override is lifted out of the arguments, so the vendor never sees it.
+    // The override is lifted out of the arguments entirely, not merely hidden
+    // — the vendor receives exactly the params the caller wrote, minus it.
     expect(provider.requests).toHaveLength(1);
-    expect(provider.requests[0]).not.toHaveProperty("fancysauce");
+    expect(provider.requests[0]).toEqual({
+      model: "claude-sonnet-5",
+      max_tokens: 100,
+      system: "You are support.",
+      messages: [{ role: "user", content: "Refund invoice 4412" }],
+    });
 
     expect(receiver.received).toHaveLength(1);
     const req = receiver.received[0];
@@ -143,10 +151,6 @@ describe("Anthropic end to end", () => {
     expect(attr(a, "gen_ai.prompt.0.content")).toBeUndefined();
     expect(attr(a, "gen_ai.completion.0.content")).toBeUndefined();
 
-    mkdirSync(OUT, { recursive: true });
-    writeFileSync(
-      join(OUT, "anthropic-messages.otlp.json"),
-      JSON.stringify(req.body, null, 2) + "\n",
-    );
+    recordOrCompare(join(OUT, "anthropic-messages.otlp.json"), req.body);
   });
 });
