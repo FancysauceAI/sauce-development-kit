@@ -188,4 +188,30 @@ describe("init", () => {
     expect(spans[0].attributes["fancysauce.attribution.customer"]).toBe("acme");
     expect(spans[1].attributes["fancysauce.attribution.feature"]).toBe("search");
   });
+
+  it("resolves instrument.ready() only once the class patch has landed", async () => {
+    let land = (): void => undefined;
+    const patched = new Promise<void>((resolve) => (land = resolve));
+    sdk = createSdk({
+      exporterFactory: () => new InMemorySpanExporter(),
+      instrumentPatch: async () => {
+        await patched;
+        return true;
+      },
+    });
+    // There is no registry until a client is instrumented, and awaiting the
+    // guarantee before then still has to be safe.
+    await expect(sdk.instrument.ready()).resolves.toBeUndefined();
+    sdk.init({ apiKey: "fs_test_x" });
+    sdk.instrument({ messages: { create: (): undefined => undefined } });
+    const order: string[] = [];
+    const ready = sdk.instrument.ready().then(() => order.push("ready"));
+    // setImmediate drains the microtask queue, so an empty log here means the
+    // pending patch — not a missed tick — is what ready() is waiting on.
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(order).toEqual([]);
+    land();
+    await ready;
+    expect(order).toEqual(["ready"]);
+  });
 });

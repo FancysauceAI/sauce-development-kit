@@ -82,20 +82,32 @@ export function createSdk(internals: SdkInternals = {}) {
    * has to bind the live attribution context, which does not exist yet, while
    * the telemetry object carries no context and its tracer resolves lazily.
    */
-  function instrument<T extends object>(client: T, opts?: InstrumentOptions): T {
-    if (!cfg)
-      throw new Error(
-        "fancy.instrument(): call fancy.init() first — the client's spans need the tracer provider and the content policy init() resolves",
-      );
-    // Built here rather than in init(), so the registry binds the context and
-    // the content policy of the configuration that is actually in force; the
-    // next init() after a shutdown() builds a new one.
-    registry ??= new InstrumentRegistry(ctx, {
-      traceContent: cfg.content === "full",
-      patch: internals.instrumentPatch,
-    });
-    return registry.instrument(client, opts);
-  }
+  const instrument = Object.assign(
+    <T extends object>(client: T, opts?: InstrumentOptions): T => {
+      if (!cfg)
+        throw new Error(
+          "fancy.instrument(): call fancy.init() first — the client's spans need the tracer provider and the content policy init() resolves",
+        );
+      // Built here rather than in init(), so the registry binds the context and
+      // the content policy of the configuration that is actually in force; the
+      // next init() after a shutdown() builds a new one.
+      registry ??= new InstrumentRegistry(ctx, {
+        traceContent: cfg.content === "full",
+        patch: internals.instrumentPatch,
+      });
+      return registry.instrument(client, opts);
+    },
+    {
+      /**
+       * Resolves once every class patch started so far has landed, so a caller
+       * that cannot rely on `instrument()` living in startup — a test, a short
+       * script — can await the guarantee that the next call produces a span.
+       */
+      ready: async (): Promise<void> => {
+        await registry?.ready();
+      },
+    },
+  );
 
   /**
    * Telemetry options for a Vercel AI SDK call, carrying the content policy

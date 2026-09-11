@@ -69,6 +69,7 @@ describe("the fancy object", () => {
     expect(typeof fancy.attribute.add).toBe("function");
     expect(typeof fancy.attribute.end).toBe("function");
     expect(typeof fancy.instrument).toBe("function");
+    expect(typeof fancy.instrument.ready).toBe("function");
     expect(typeof fancy.vercelTelemetry).toBe("function");
     expect(typeof fancy.spanProcessors).toBe("function");
     expect(typeof fancy.forceFlush).toBe("function");
