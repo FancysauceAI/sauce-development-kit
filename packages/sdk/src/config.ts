@@ -57,7 +57,11 @@ export const DEFAULT_ENDPOINT = "https://ingest.fancysauce.ai";
 export function resolveConfig(options: InitOptions): ResolvedConfig {
   if (!options || typeof options.apiKey !== "string" || options.apiKey.length === 0)
     throw new Error("fancy.init(): apiKey is required");
-  const endpoint = (options.endpoint ?? DEFAULT_ENDPOINT).replace(/\/+$/, "");
+  // Trailing slashes are stripped by scanning, not by `/\/+$/`: a regex with an
+  // unbounded repeat anchored at the end is quadratic on hostile input, and the
+  // endpoint is caller-controlled.
+  let endpoint = options.endpoint ?? DEFAULT_ENDPOINT;
+  while (endpoint.endsWith("/")) endpoint = endpoint.slice(0, -1);
   if (!/^https?:\/\//.test(endpoint))
     throw new Error("fancy.init(): endpoint must be an http(s) URL");
   // A key from another vendor is a configuration mix-up the ingest will reject
