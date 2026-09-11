@@ -19,11 +19,18 @@ import { ATTR, SCHEMA_VERSION } from "./contract.js";
 import { setDebug, warnOnce } from "./diagnostics.js";
 import { ContentPolicyExporter } from "./export/content-policy-exporter.js";
 import { createExporter } from "./export/exporter.js";
+import {
+  InstrumentRegistry,
+  type ClassPatch,
+  type InstrumentOptions,
+} from "./instrument/registry.js";
 import { StampingProcessor } from "./processors/stamping-processor.js";
 
 export interface SdkInternals {
   /** Test seam: replaces the OTLP exporter; the content policy still wraps it. */
   exporterFactory?: (cfg: ResolvedConfig) => SpanExporter;
+  /** Test seam: replaces the OpenLLMetry class patch instrument() applies. */
+  instrumentPatch?: ClassPatch;
 }
 
 const PROBE_KEY = createContextKey("fancysauce context manager probe");
@@ -43,6 +50,7 @@ export function createSdk(internals: SdkInternals = {}) {
   let ctx = new AttributionContext({ mode: "auto" });
   let provider: NodeTracerProvider | undefined;
   let processors: SpanProcessor[] = [];
+  let registry: InstrumentRegistry | undefined;
   // shutdown() releases only what init() claimed. An application that installed
   // its own context manager keeps it.
   let installedContextManager = false;
@@ -64,6 +72,25 @@ export function createSdk(internals: SdkInternals = {}) {
       end: (key?: string): void => ctx.attribute.end(key),
     },
   ) as AttributeFn;
+
+  /**
+   * Wraps an OpenAI or Anthropic client so its calls carry attribution, and
+   * patches its class so they produce spans.
+   */
+  function instrument<T extends object>(client: T, opts?: InstrumentOptions): T {
+    if (!cfg)
+      throw new Error(
+        "fancy.instrument(): call fancy.init() first — the client's spans need the tracer provider and the content policy init() resolves",
+      );
+    // Built here rather than in init(), so the registry binds the context and
+    // the content policy of the configuration that is actually in force; the
+    // next init() after a shutdown() builds a new one.
+    registry ??= new InstrumentRegistry(ctx, {
+      traceContent: cfg.content === "full",
+      patch: internals.instrumentPatch,
+    });
+    return registry.instrument(client, opts);
+  }
 
   function init(options: InitOptions): void {
     if (cfg) {
@@ -142,6 +169,7 @@ export function createSdk(internals: SdkInternals = {}) {
 
   return {
     init,
+    instrument,
     config: (): ResolvedConfig | undefined => cfg,
     /** For applications that own their tracer provider: register these on it. */
     spanProcessors: (): SpanProcessor[] => processors,
@@ -164,6 +192,7 @@ export function createSdk(internals: SdkInternals = {}) {
       provider = undefined;
       cfg = undefined;
       processors = [];
+      registry = undefined;
       ctx = new AttributionContext({ mode: "auto" });
     },
   };

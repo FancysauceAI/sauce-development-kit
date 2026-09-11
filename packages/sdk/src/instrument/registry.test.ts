@@ -1,16 +1,7 @@
-import type { TracerProvider } from "@opentelemetry/api";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AttributionContext, type Scope } from "../attribution/context.js";
 import { resetDiagnostics } from "../diagnostics.js";
-import type { Provider } from "./detect.js";
-import { InstrumentRegistry } from "./registry.js";
-
-type Patch = (
-  provider: Provider,
-  ctor: unknown,
-  tracerProvider: TracerProvider,
-  traceContent: boolean,
-) => Promise<boolean>;
+import { InstrumentRegistry, type ClassPatch } from "./registry.js";
 
 interface Call {
   body: unknown;
@@ -58,7 +49,7 @@ describe("InstrumentRegistry", () => {
   });
 
   const registry = (): InstrumentRegistry =>
-    new InstrumentRegistry(ctx, { patch: patch as unknown as Patch, traceContent: true });
+    new InstrumentRegistry(ctx, { patch: patch as unknown as ClassPatch, traceContent: true });
 
   it("applies the client's attribution to every call made on it", async () => {
     const { OpenAIish } = fakeOpenAI(ctx, calls);

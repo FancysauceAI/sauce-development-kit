@@ -11,14 +11,16 @@ export interface InstrumentOptions {
   attribution?: BagInput;
 }
 
+/** Patches the class's prototypes; resolves false when the instrumentation package is absent. */
+export type ClassPatch = (
+  provider: Provider,
+  ctor: unknown,
+  tracerProvider: TracerProvider,
+  traceContent: boolean,
+) => Promise<boolean>;
+
 interface RegistryDeps {
-  /** Patches the class's prototypes; resolves false when the instrumentation package is absent. */
-  patch?: (
-    provider: Provider,
-    ctor: unknown,
-    tracerProvider: TracerProvider,
-    traceContent: boolean,
-  ) => Promise<boolean>;
+  patch?: ClassPatch;
   traceContent: boolean;
 }
 
@@ -122,7 +124,7 @@ function takeOverride(args: unknown[]): { override: BagInput; forwarded: unknown
 export class InstrumentRegistry {
   private readonly patched = new WeakSet<object>();
   private readonly pending = new Set<Promise<void>>();
-  private readonly patch: NonNullable<RegistryDeps["patch"]>;
+  private readonly patch: ClassPatch;
 
   constructor(
     readonly ctx: AttributionContext,
