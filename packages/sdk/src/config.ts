@@ -95,6 +95,12 @@ export function resolveConfig(options: InitOptions): ResolvedConfig {
     throw new Error(
       "fancy.init(): endpoint must be an https URL; plain http is accepted only for a loopback host (localhost, 127.0.0.1, [::1])",
     );
+  // The endpoint is a base URL the exporter appends a path to, so a query or a
+  // fragment on it has nowhere to go: it would land before `/v1/traces` on a
+  // route the ingest does not serve, and a credential written into it would
+  // ride on every request line.
+  if (url.search !== "" || url.hash !== "")
+    throw new Error("fancy.init(): endpoint must be a base URL, with no query string or fragment");
   // A key from another vendor is a configuration mix-up the ingest will reject
   // with a 401 an hour later. Warning beats throwing: the prefix is a
   // convention, and refusing to start over one would be the SDK taking the

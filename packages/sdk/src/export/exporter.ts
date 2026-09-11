@@ -10,8 +10,15 @@ import { ContentPolicyExporter } from "./content-policy-exporter.js";
  * decorator adds the content policy and the ingest's 413 halving.
  */
 export function createExporter(cfg: ResolvedConfig): SpanExporter {
+  // Built from the parsed URL rather than by concatenation, so an endpoint
+  // carrying a base path keeps it: `https://host/base` posts to
+  // `https://host/base/v1/traces`. resolveConfig() has already stripped any
+  // trailing slash and refused a query string or fragment, which is what makes
+  // appending to the path the whole of the join.
+  const url = new URL(cfg.endpoint);
+  url.pathname = `${url.pathname === "/" ? "" : url.pathname}/v1/traces`;
   const otlp = new OTLPTraceExporter({
-    url: `${cfg.endpoint}/v1/traces`,
+    url: url.toString(),
     headers: { Authorization: `Bearer ${cfg.apiKey}` },
     compression: CompressionAlgorithm.GZIP,
     timeoutMillis: 10_000,

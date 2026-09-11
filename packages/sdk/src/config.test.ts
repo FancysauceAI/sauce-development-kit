@@ -18,8 +18,8 @@ describe("resolveConfig", () => {
   });
 
   it("strips trailing slashes from the endpoint", () => {
-    // `${endpoint}/v1/traces` is built by concatenation, so a trailing slash
-    // would produce a double slash the ingest would not route.
+    // The exporter appends `/v1/traces` to the endpoint's path, so a trailing
+    // slash would leave an empty path segment the ingest would not route.
     expect(resolveConfig({ apiKey: "fs_test_x", endpoint: "https://x.example/" }).endpoint).toBe(
       "https://x.example",
     );
@@ -43,6 +43,13 @@ describe("resolveConfig", () => {
     for (const endpoint of ["http://ingest.example", "http://127.0.0.1.example.com"])
       expect(() => resolveConfig({ apiKey: "fs_test_x", endpoint }), endpoint).toThrow(
         /loopback host/,
+      );
+  });
+
+  it("rejects an endpoint carrying a query string or a fragment", () => {
+    for (const endpoint of ["https://x.example?token=x", "https://x.example/base#f"])
+      expect(() => resolveConfig({ apiKey: "fs_test_x", endpoint }), endpoint).toThrow(
+        /query string or fragment/,
       );
   });
 

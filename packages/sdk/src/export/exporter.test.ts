@@ -89,6 +89,17 @@ describe("createExporter", () => {
     await exporter.shutdown();
   });
 
+  it("appends /v1/traces to a base path on the endpoint", async () => {
+    const c = await collector();
+    close = c.close;
+    const exporter = createExporter(
+      resolveConfig({ apiKey: "fs_test_k", endpoint: `${c.endpoint}/base` }),
+    );
+    await exportOnce(exporter, [oneSpan({ "gen_ai.request.model": "m" })]);
+    expect(c.received[0].path).toBe("/base/v1/traces");
+    await exporter.shutdown();
+  });
+
   it("applies the content policy before the span reaches the wire", async () => {
     const c = await collector();
     close = c.close;
