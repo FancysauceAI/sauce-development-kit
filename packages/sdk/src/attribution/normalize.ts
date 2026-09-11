@@ -19,10 +19,26 @@ export interface DroppedKey {
   reason: DropReason;
 }
 
+/**
+ * Reserved keys as the caller wrote them. They are carried raw rather than
+ * expanded so that merging one scope over another replaces a reserved key
+ * outright: `member` maps to `user.email` or to `user.id` depending on the
+ * value, and merging the expanded forms would leave both on the span.
+ */
+export type ReservedBag = Partial<Record<ReservedKey, string>>;
+
+/** Expands reserved bag keys into the standard attributes they map to. */
+export function expandReserved(reserved: ReservedBag): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(reserved))
+    if (value !== undefined)
+      Object.assign(out, RESERVED_KEYS[key as ReservedKey].toAttributes(value));
+  return out;
+}
+
 export interface NormalizedBag {
   attribution: Record<string, string>;
-  /** Standard attributes produced by reserved keys (user.email, gen_ai.conversation.id, …). */
-  reserved: Record<string, string>;
+  reserved: ReservedBag;
   dropped: DroppedKey[];
 }
 
@@ -33,7 +49,7 @@ export interface NormalizedMetadata {
 
 interface Normalized {
   kept: Record<string, string>;
-  reserved: Record<string, string>;
+  reserved: ReservedBag;
   dropped: DroppedKey[];
 }
 
@@ -68,7 +84,7 @@ function normalize(input: BagInput, mapReserved: boolean): Normalized {
   // rather than mutating the accumulator.
   const out: Normalized = {
     kept: Object.create(null) as Record<string, string>,
-    reserved: Object.create(null) as Record<string, string>,
+    reserved: Object.create(null) as ReservedBag,
     dropped: [],
   };
   const seen = new Set<string>();
@@ -106,7 +122,7 @@ function normalize(input: BagInput, mapReserved: boolean): Normalized {
         continue;
       }
       seen.add(key);
-      Object.assign(out.reserved, RESERVED_KEYS[key].toAttributes(value));
+      out.reserved[key] = value;
       continue;
     }
     seen.add(key);

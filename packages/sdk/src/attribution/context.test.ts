@@ -47,7 +47,7 @@ describe("AttributionContext (auto mode)", () => {
       async () => {
         const s = ctx.current();
         expect(s.metadata).toEqual({ ticket: "ZD-1" });
-        expect(s.reserved["gen_ai.conversation.id"]).toBe("c1");
+        expect(s.reserved.conversation).toBe("c1");
         expect(s.attribution).toEqual({ customer: "acme" });
       },
     );

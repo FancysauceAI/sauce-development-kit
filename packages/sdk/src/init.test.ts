@@ -83,6 +83,17 @@ describe("init", () => {
     expect(byName.get("instrumented")?.["user.email"]).toBe("caller@example.com");
   });
 
+  it("lets a scope's member replace the init() default rather than sit beside it", async () => {
+    const mem = new InMemorySpanExporter();
+    sdk = createSdk({ exporterFactory: () => mem });
+    sdk.init({ apiKey: "fs_test_x", attribution: { member: "ops@example.com" } });
+    sdk.attribute({ member: "u_9" }, () => trace.getTracer("app").startSpan("scoped").end());
+    await sdk.forceFlush();
+    const attrs = mem.getFinishedSpans()[0].attributes;
+    expect(attrs["user.id"]).toBe("u_9");
+    expect(attrs["user.email"]).toBeUndefined();
+  });
+
   it("warns about a default attribution key it had to drop", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     sdk = createSdk({ exporterFactory: () => new InMemorySpanExporter() });

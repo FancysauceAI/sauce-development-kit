@@ -1,11 +1,22 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { debug, warnOnce } from "../diagnostics.js";
-import { normalizeBag, normalizeMetadata, type BagInput, type DroppedKey } from "./normalize.js";
+import {
+  normalizeBag,
+  normalizeMetadata,
+  type BagInput,
+  type DroppedKey,
+  type ReservedBag,
+} from "./normalize.js";
 
 export interface Scope {
   attribution: Readonly<Record<string, string>>;
   metadata: Readonly<Record<string, string>>;
-  reserved: Readonly<Record<string, string>>;
+  /**
+   * Reserved keys as written. They are expanded into standard attributes at
+   * stamping time so that merging replaces a reserved key outright rather than
+   * unioning the two attributes it can map to.
+   */
+  reserved: Readonly<ReservedBag>;
 }
 
 export interface AttributeOptions {

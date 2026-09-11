@@ -13,7 +13,7 @@ import {
   type AttributeFn,
   type AttributeOptions,
 } from "./attribution/context.js";
-import { normalizeBag, type BagInput } from "./attribution/normalize.js";
+import { expandReserved, normalizeBag, type BagInput } from "./attribution/normalize.js";
 import { resolveConfig, type InitOptions, type ResolvedConfig } from "./config.js";
 import { ATTR, SCHEMA_VERSION } from "./contract.js";
 import { setDebug, warnOnce } from "./diagnostics.js";
@@ -155,7 +155,7 @@ export function createSdk(internals: SdkInternals = {}) {
       ...Object.fromEntries(
         Object.entries(defaults.attribution).map(([k, v]) => [ATTR.attributionPrefix + k, v]),
       ),
-      ...defaults.reserved,
+      ...expandReserved(defaults.reserved),
     });
     const raw = internals.exporterFactory?.(resolved);
     const exporter = raw

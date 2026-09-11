@@ -1,6 +1,7 @@
 import type { Context } from "@opentelemetry/api";
 import type { ReadableSpan, Span, SpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { EMPTY_SCOPE, type AttributionContext, type Scope } from "../attribution/context.js";
+import { expandReserved } from "../attribution/normalize.js";
 import { ATTR } from "../contract.js";
 
 /**
@@ -44,12 +45,15 @@ export class StampingProcessor implements SpanProcessor {
       span.setAttribute(ATTR.metadataPrefix + k, v);
     for (const [k, v] of Object.entries(scope.metadata))
       span.setAttribute(ATTR.metadataPrefix + k, v);
-    // The reserved keys are merged before the guard rather than written in two
-    // passes: writing `base` first would make the span carry it, and the
-    // scope's own value would then lose to the guard meant for instrumentation.
+    // Reserved keys are merged raw and expanded once, here: `member` maps to
+    // `user.email` or to `user.id` depending on the value, so merging the
+    // expanded forms would leave an overridden address beside the id.
+    // Merging before the guard also matters — writing `base` first would make
+    // the span carry it, and the scope's own value would then lose to the
+    // guard meant for instrumentation.
     const reserved =
       this.base === EMPTY_SCOPE ? scope.reserved : { ...this.base.reserved, ...scope.reserved };
-    for (const [k, v] of Object.entries(reserved))
+    for (const [k, v] of Object.entries(expandReserved(reserved)))
       if (span.attributes[k] === undefined) span.setAttribute(k, v);
   }
 

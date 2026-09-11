@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeBag, normalizeMetadata, type BagInput } from "./normalize.js";
+import { expandReserved, normalizeBag, normalizeMetadata, type BagInput } from "./normalize.js";
 
 describe("normalizeBag", () => {
   it("lowercases and trims keys and trims values", () => {
@@ -53,21 +53,24 @@ describe("normalizeBag", () => {
       ]);
     }
   });
-  it("maps reserved keys to standard attributes instead of the bag", () => {
+  it("keeps reserved keys out of the attribution bag, as the caller wrote them", () => {
     const r = normalizeBag({
       member: "Dev@Example.com",
       conversation: "conv_1",
       customer: "acme",
     });
     expect(r.attribution).toEqual({ customer: "acme" });
-    expect(r.reserved).toEqual({
+    expect(r.reserved).toEqual({ member: "Dev@Example.com", conversation: "conv_1" });
+  });
+  it("expands reserved keys into the standard attributes they map to", () => {
+    expect(expandReserved({ member: "Dev@Example.com", conversation: "conv_1" })).toEqual({
       "user.email": "dev@example.com",
       "gen_ai.conversation.id": "conv_1",
       "session.id": "conv_1",
     });
   });
-  it("maps a non-email member to user.id", () => {
-    expect(normalizeBag({ member: "u_9" }).reserved).toEqual({ "user.id": "u_9" });
+  it("expands a non-email member to user.id", () => {
+    expect(expandReserved({ member: "u_9" })).toEqual({ "user.id": "u_9" });
   });
   it("drops an over-long reserved value rather than truncating a join key", () => {
     const email = "a".repeat(201 - "@example.com".length) + "@example.com";

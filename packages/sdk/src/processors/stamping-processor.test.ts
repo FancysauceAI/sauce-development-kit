@@ -49,6 +49,22 @@ describe("StampingProcessor", () => {
     );
   });
 
+  it("replaces a reserved key outright instead of keeping both attributes it can map to", async () => {
+    const { ctx, exporter, tracer } = setup();
+    await ctx.attribute({ member: "j.park@example.com", conversation: "c1" }, async () => {
+      await ctx.attribute({ member: "u_9", conversation: "c2" }, async () => {
+        tracer.startSpan("chat").end();
+      });
+    });
+    const attrs = exporter.getFinishedSpans()[0].attributes;
+    // The outer member is an email and the inner one an id, so the two expand
+    // to different attributes; only the inner one belongs on the span.
+    expect(attrs["user.id"]).toBe("u_9");
+    expect(attrs["user.email"]).toBeUndefined();
+    expect(attrs["gen_ai.conversation.id"]).toBe("c2");
+    expect(attrs["session.id"]).toBe("c2");
+  });
+
   it("stamps nothing when no scope is active", () => {
     const { exporter, tracer } = setup();
     tracer.startSpan("chat").end();
