@@ -37,12 +37,18 @@ export const CONTENT_ATTRIBUTES = [
 export const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 export const RESERVED_KEYS = {
   member: {
+    // Every attribute the key can map to, which is not the same as the ones a
+    // given value writes: `member` picks one of these two by value, so a
+    // consumer deciding whether the call is already identified has to look at
+    // both.
+    attributes: [ATTR.userEmail, ATTR.userId],
     toAttributes: (v: string): Record<string, string> =>
       // Lowercasing the whole address (not just the local part) is deliberate:
       // it's a stable join key, and providers ignore local-part case.
       EMAIL_PATTERN.test(v) ? { [ATTR.userEmail]: v.toLowerCase() } : { [ATTR.userId]: v },
   },
   conversation: {
+    attributes: [ATTR.conversationId, ATTR.sessionId],
     toAttributes: (v: string): Record<string, string> => ({
       [ATTR.conversationId]: v,
       [ATTR.sessionId]: v,

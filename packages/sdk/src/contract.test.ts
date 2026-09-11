@@ -47,6 +47,13 @@ describe("contract", () => {
   it("reserves exactly member and conversation", () => {
     expect(Object.keys(RESERVED_KEYS).sort()).toEqual(["conversation", "member"]);
   });
+  it("names every attribute a reserved key can map to, not only the one a value writes", () => {
+    expect([...RESERVED_KEYS.member.attributes]).toEqual(["user.email", "user.id"]);
+    expect([...RESERVED_KEYS.conversation.attributes]).toEqual([
+      "gen_ai.conversation.id",
+      "session.id",
+    ]);
+  });
   it("maps reserved keys to standard attributes", () => {
     expect(RESERVED_KEYS.member.toAttributes("Sean@Example.com")).toEqual({
       "user.email": "sean@example.com",

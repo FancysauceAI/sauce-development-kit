@@ -44,9 +44,24 @@ describe("StampingProcessor", () => {
         .startSpan("chat", { attributes: { "gen_ai.conversation.id": "from-instrumentation" } })
         .end();
     });
-    expect(exporter.getFinishedSpans()[0].attributes["gen_ai.conversation.id"]).toBe(
-      "from-instrumentation",
-    );
+    const attrs = exporter.getFinishedSpans()[0].attributes;
+    expect(attrs["gen_ai.conversation.id"]).toBe("from-instrumentation");
+    // The pair a reserved key expands to is written whole or not at all: an
+    // ambient session.id beside the instrumentation's conversation id would
+    // claim the two name the same conversation.
+    expect(attrs["session.id"]).toBeUndefined();
+  });
+
+  it("keeps a reserved key off the span when either attribute it can map to is set", () => {
+    const { ctx, exporter, tracer } = setup();
+    ctx.attribute({ member: "j.park@example.com" }, () => {
+      tracer.startSpan("chat", { attributes: { "user.id": "from-instrumentation" } }).end();
+    });
+    const attrs = exporter.getFinishedSpans()[0].attributes;
+    expect(attrs["user.id"]).toBe("from-instrumentation");
+    // `member` maps to user.email or user.id by value, so checking only the
+    // one this value writes would leave the span carrying two identities.
+    expect(attrs["user.email"]).toBeUndefined();
   });
 
   it("replaces a reserved key outright instead of keeping both attributes it can map to", async () => {
