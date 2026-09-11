@@ -1,5 +1,5 @@
 import { warnOnce } from "../../diagnostics.js";
-import type { PatchOptions } from "./openai.js";
+import type { PatchOptions } from "./types.js";
 
 /**
  * The instance methods `instrument()` wraps so each call runs inside the

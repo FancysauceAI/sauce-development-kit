@@ -1,8 +1,9 @@
 import { sdk } from "./process-sdk.js";
 
 export type { InitOptions } from "./config.js";
-export type { AttributeOptions, Scope } from "./attribution/context.js";
+export type { AttributeOptions, ContextMode } from "./attribution/context.js";
 export type { BagInput } from "./attribution/normalize.js";
+export type { ContentMode } from "./export/content-policy-exporter.js";
 export type { InstrumentOptions } from "./instrument/registry.js";
 export type { VercelTelemetry } from "./vercel-telemetry.js";
 export { SCHEMA_VERSION } from "./contract.js";

@@ -1,5 +1,5 @@
-import type { TracerProvider } from "@opentelemetry/api";
 import { warnOnce } from "../../diagnostics.js";
+import type { PatchOptions } from "./types.js";
 
 /**
  * The instance methods `instrument()` wraps so each call runs inside the
@@ -13,11 +13,6 @@ export const OPENAI_METHODS = [
   "responses.create",
   "embeddings.create",
 ] as const;
-
-export interface PatchOptions {
-  tracerProvider: TracerProvider;
-  traceContent: boolean;
-}
 
 /**
  * Patches the OpenAI client class's prototypes through OpenLLMetry, and

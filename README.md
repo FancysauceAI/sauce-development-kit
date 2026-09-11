@@ -254,7 +254,7 @@ The runtime surface is the `fancy` object:
 | `forceFlush`      | `() => Promise<void>`                                                      |
 | `shutdown`        | `() => Promise<void>`                                                      |
 
-Beside it the package exports `SCHEMA_VERSION` — the wire contract's version, the same constant `@fancysauce/sdk/contract` carries — and the option types the table above refers to: `InitOptions`, `AttributeOptions`, `BagInput`, `InstrumentOptions`, `Scope`, `VercelTelemetry`, and `Fancy`.
+Beside it the package exports `SCHEMA_VERSION` — the wire contract's version, the same constant `@fancysauce/sdk/contract` carries — and the option types the table above refers to: `InitOptions`, `AttributeOptions`, `BagInput`, `ContentMode`, `ContextMode`, `InstrumentOptions`, `VercelTelemetry`, and `Fancy`.
 
 Two subpaths sit beside it:
 
