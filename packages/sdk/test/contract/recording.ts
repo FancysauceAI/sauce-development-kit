@@ -40,12 +40,9 @@ function normalize(value: unknown): unknown {
 
 /**
  * Recording the fixture is a side effect the ingest depends on; comparing
- * against it is the assertion — the two were previously conflated into an
- * unconditional write, which made the suite pass even when the wire shape
- * regressed. Set RECORD_CONTRACT=1 (or delete the file) to re-record, which
- * is required whenever bumping a `@traceloop/instrumentation-*` package
- * changes the recorded `scope.version` — that is expected to fail the
- * compare until re-recorded, not a bug in this helper.
+ * against it is the assertion. An unconditional write conflates the two and
+ * makes the suite pass even when the wire shape has regressed, so the write
+ * happens only when asked for, or when there is no fixture yet.
  */
 export function recordOrCompare(file: string, body: unknown): void {
   if (process.env.RECORD_CONTRACT === "1" || !existsSync(file)) {

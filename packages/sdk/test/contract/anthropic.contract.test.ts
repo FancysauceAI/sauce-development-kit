@@ -2,16 +2,8 @@
  * The Anthropic half of the wire contract: a real `@anthropic-ai/sdk` client, a
  * fake Anthropic server, and a fake collector, so what is asserted is the
  * OTLP/HTTP JSON the SDK actually posts rather than an in-memory span.
- *
- * The first run records `out/anthropic-messages.otlp.json`, which the ingest
- * vendors as a fixture; every run after that compares against it via
- * `recordOrCompare` (see recording.ts), blanking only what a run mints or the
- * package version supplies — `traceId`, `spanId`, `parentSpanId`,
- * `startTimeUnixNano`, `endTimeUnixNano`, and the `fancysauce.sdk.version`
- * resource attribute. The recorded file itself keeps its real-shaped ids,
- * timestamps and version, so the ingest still has something realistic to
- * parse against.
- * Set RECORD_CONTRACT=1 to re-record after an intentional shape change.
+ * `out/anthropic-messages.otlp.json` is the recorded shape, which the ingest
+ * vendors as a fixture and `recordOrCompare` holds this suite to.
  */
 import { join } from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
