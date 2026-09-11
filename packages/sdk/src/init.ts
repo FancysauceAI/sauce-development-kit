@@ -53,8 +53,9 @@ export function createSdk(internals: SdkInternals = {}) {
   let provider: NodeTracerProvider | undefined;
   let processors: SpanProcessor[] = [];
   let registry: InstrumentRegistry | undefined;
-  // shutdown() releases only what init() claimed. An application that installed
-  // its own context manager keeps it.
+  // shutdown() releases only what init() claimed. An application that owns the
+  // global tracer provider or installed its own context manager keeps both.
+  let claimedGlobalProvider = false;
   let installedContextManager = false;
 
   // A stable callable that reads `ctx` at call time rather than at hand-out
@@ -181,12 +182,12 @@ export function createSdk(internals: SdkInternals = {}) {
       }),
     ];
     const nextProvider = new NodeTracerProvider({ resource, spanProcessors: nextProcessors });
-    if (!trace.setGlobalTracerProvider(nextProvider)) {
+    if (trace.setGlobalTracerProvider(nextProvider)) claimedGlobalProvider = true;
+    else
       warnOnce(
         "init:provider",
         "an OpenTelemetry tracer provider is already registered; pass fancy.spanProcessors() to it or call fancy.init() first",
       );
-    }
     // NodeTracerProvider installs a context manager only from register(), which
     // would also claim the global provider and propagator. We claim the
     // provider above so the already-registered case stays visible, which leaves
@@ -224,8 +225,13 @@ export function createSdk(internals: SdkInternals = {}) {
       // The global tracer proxy keeps delegating to a shut-down provider
       // forever, and setGlobalTracerProvider refuses to replace one that is
       // still registered — so a shutdown that does not release the global
-      // makes every later init() a no-op that silently drops every span.
-      trace.disable();
+      // makes every later init() a no-op that silently drops every span. Only
+      // the provider init() actually claimed is released: disabling one the
+      // host registered would silence the host's own tracing.
+      if (claimedGlobalProvider) {
+        trace.disable();
+        claimedGlobalProvider = false;
+      }
       if (installedContextManager) {
         context.disable();
         installedContextManager = false;

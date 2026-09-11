@@ -1,7 +1,11 @@
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { context, trace } from "@opentelemetry/api";
-import { InMemorySpanExporter } from "@opentelemetry/sdk-trace-base";
+import {
+  BasicTracerProvider,
+  InMemorySpanExporter,
+  SimpleSpanProcessor,
+} from "@opentelemetry/sdk-trace-base";
 import { createSdk } from "./init.js";
 import { resetDiagnostics } from "./diagnostics.js";
 
@@ -180,6 +184,25 @@ describe("init", () => {
     trace.getTracer("app").startSpan("two").end();
     await sdk.forceFlush();
     expect(second.getFinishedSpans().map((s) => s.name)).toEqual(["two"]);
+  });
+
+  it("leaves a tracer provider the host registered first alone on shutdown", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = new InMemorySpanExporter();
+    const hostProvider = new BasicTracerProvider({
+      spanProcessors: [new SimpleSpanProcessor(host)],
+    });
+    trace.setGlobalTracerProvider(hostProvider);
+    sdk = createSdk({ exporterFactory: () => new InMemorySpanExporter() });
+    sdk.init({ apiKey: "fs_test_x" });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("already registered"));
+    await sdk.shutdown();
+    // A disabled global hands out a no-op tracer, so a span that still reaches
+    // the host's exporter is the proof that shutdown() left the global alone.
+    trace.getTracer("app").startSpan("after-shutdown").end();
+    expect(host.getFinishedSpans().map((s) => s.name)).toEqual(["after-shutdown"]);
+    await hostProvider.shutdown();
+    warn.mockRestore();
   });
 
   it("hands out an attribute function that survives being destructured before init", async () => {
