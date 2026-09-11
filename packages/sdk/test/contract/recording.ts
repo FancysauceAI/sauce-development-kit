@@ -15,9 +15,19 @@ const PER_RUN_FIELDS = new Set([
   "endTimeUnixNano",
 ]);
 
+/**
+ * Attributes whose value tracks the package rather than the wire shape. Left
+ * alone, the first version bump would fail both contract suites over a change
+ * they exist to be indifferent to.
+ */
+const PER_RUN_ATTRIBUTES = new Set(["fancysauce.sdk.version"]);
+
 function normalize(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(normalize);
   if (value !== null && typeof value === "object") {
+    const { key } = value as { key?: unknown };
+    if (typeof key === "string" && PER_RUN_ATTRIBUTES.has(key))
+      return { key, value: "<normalized>" };
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>).map(([k, v]) => [
         k,

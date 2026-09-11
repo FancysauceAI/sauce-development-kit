@@ -5,10 +5,12 @@
  *
  * The first run records `out/openai-chat.otlp.json`, which the ingest vendors
  * as a fixture; every run after that compares against it via
- * `recordOrCompare` (see recording.ts), blanking only the four fields the
- * tracer mints per run — `traceId`, `spanId`, `startTimeUnixNano` and
- * `endTimeUnixNano`. The recorded file itself keeps its real-shaped ids and
- * timestamps, so the ingest still has something realistic to parse against.
+ * `recordOrCompare` (see recording.ts), blanking only what a run mints or the
+ * package version supplies — `traceId`, `spanId`, `parentSpanId`,
+ * `startTimeUnixNano`, `endTimeUnixNano`, and the `fancysauce.sdk.version`
+ * resource attribute. The recorded file itself keeps its real-shaped ids,
+ * timestamps and version, so the ingest still has something realistic to
+ * parse against.
  * Set RECORD_CONTRACT=1 to re-record after an intentional shape change.
  */
 import { join } from "node:path";
