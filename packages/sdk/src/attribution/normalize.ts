@@ -53,7 +53,8 @@ interface Normalized {
   dropped: DroppedKey[];
 }
 
-function isReserved(key: string): key is ReservedKey {
+/** Whether a normalized key is one of the reserved identity keys. */
+export function isReserved(key: string): key is ReservedKey {
   return Object.prototype.hasOwnProperty.call(RESERVED_KEYS, key);
 }
 

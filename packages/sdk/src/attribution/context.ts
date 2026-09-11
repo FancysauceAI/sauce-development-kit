@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { debug, warnOnce } from "../diagnostics.js";
 import {
+  isReserved,
   normalizeBag,
   normalizeMetadata,
   type BagInput,
@@ -192,7 +193,12 @@ export class AttributionContext {
     const k = key.trim().toLowerCase();
     const kept = Object.entries(cur.attribution).filter(([x]) => x !== k);
     if (kept.length === Object.keys(cur.attribution).length)
-      debug("attribute.end: no such attribution key", key);
+      debug(
+        isReserved(k)
+          ? "attribute.end: a reserved key is not an attribution key and end(key) cannot remove it; end() drops the whole scope"
+          : "attribute.end: no such attribution key",
+        key,
+      );
     return { ...cur, attribution: Object.fromEntries(kept) };
   }
 }

@@ -229,6 +229,24 @@ describe("AttributionContext (scope immutability and diagnostics)", () => {
     expect(text).not.toContain("ZD-88213");
   });
 
+  it("says under debug that end(key) cannot remove a reserved key", () => {
+    const logged: unknown[] = [];
+    const orig = console.debug;
+    console.debug = (...args: unknown[]) => void logged.push(args);
+    setDebug(true);
+    try {
+      ctx.attribute.start({ customer: "acme", member: "j.park@example.com" });
+      ctx.attribute.end("member");
+    } finally {
+      console.debug = orig;
+      setDebug(false);
+      ctx.attribute.end();
+    }
+    // Reported as what it is rather than as a missing key: `member` is in the
+    // scope, just not as an attribution key end(key) reaches.
+    expect(JSON.stringify(logged)).toContain("a reserved key is not an attribution key");
+  });
+
   it("refuses a call with no callback", () => {
     // @ts-expect-error — the missing callback is the point of the test.
     expect(() => ctx.attribute({ customer: "acme" })).toThrow(TypeError);
