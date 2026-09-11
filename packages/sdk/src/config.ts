@@ -10,7 +10,10 @@ export interface InitOptions {
   name?: string;
   /** Application version. Becomes `service.version`. */
   version?: string;
-  /** Ingest base URL. Default https://ingest.fancysauce.ai */
+  /**
+   * Ingest base URL. Default https://ingest.fancysauce.ai. Must be https
+   * unless the host is loopback.
+   */
   endpoint?: string;
   /** Process-wide attribution defaults, e.g. { environment: "prod" }. */
   attribution?: BagInput;
@@ -57,10 +60,16 @@ export interface ResolvedConfig {
 
 export const DEFAULT_ENDPOINT = "https://ingest.fancysauce.ai";
 
+// The exception to requiring https: a local collector or a test receiver has no
+// certificate, and its traffic never leaves the machine. Every other host would
+// be putting prompts, responses and an API key on the wire in the clear.
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
 /**
- * Rejects the two mistakes that would otherwise surface as silent data loss
- * hours later: no key, and an endpoint the OTLP exporter cannot parse. A key
- * that does not look like ours is warned about, not rejected.
+ * Rejects the mistakes that would otherwise surface hours later as silent data
+ * loss or as prompts on the wire in the clear: no key, an endpoint the OTLP
+ * exporter cannot parse, and a plaintext endpoint pointed anywhere but
+ * loopback. A key that does not look like ours is warned about, not rejected.
  */
 export function resolveConfig(options: InitOptions): ResolvedConfig {
   if (!options || typeof options.apiKey !== "string" || options.apiKey.length === 0)
@@ -70,8 +79,18 @@ export function resolveConfig(options: InitOptions): ResolvedConfig {
   // endpoint is caller-controlled.
   let endpoint = options.endpoint ?? DEFAULT_ENDPOINT;
   while (endpoint.endsWith("/")) endpoint = endpoint.slice(0, -1);
-  if (!/^https?:\/\//.test(endpoint))
+  let url: URL;
+  try {
+    url = new URL(endpoint);
+  } catch {
     throw new Error("fancy.init(): endpoint must be an http(s) URL");
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:")
+    throw new Error("fancy.init(): endpoint must be an http(s) URL");
+  if (url.protocol === "http:" && !LOOPBACK_HOSTS.has(url.hostname))
+    throw new Error(
+      "fancy.init(): endpoint must be an https URL; plain http is accepted only for a loopback host (localhost, 127.0.0.1, [::1])",
+    );
   // A key from another vendor is a configuration mix-up the ingest will reject
   // with a 401 an hour later. Warning beats throwing: the prefix is a
   // convention, and refusing to start over one would be the SDK taking the

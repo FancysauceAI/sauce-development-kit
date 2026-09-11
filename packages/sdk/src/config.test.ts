@@ -28,6 +28,24 @@ describe("resolveConfig", () => {
     );
   });
 
+  it("rejects an endpoint that is not an http(s) URL", () => {
+    for (const endpoint of ["ingest.example", "ftp://x.example", "https://"])
+      expect(() => resolveConfig({ apiKey: "fs_test_x", endpoint }), endpoint).toThrow(
+        /http\(s\) URL/,
+      );
+  });
+
+  it("accepts plain http only for a loopback host", () => {
+    for (const endpoint of ["http://localhost:4318", "http://127.0.0.1:4318", "http://[::1]:4318"])
+      expect(resolveConfig({ apiKey: "fs_test_x", endpoint }).endpoint, endpoint).toBe(endpoint);
+    // A hostname that merely starts with a loopback address is somebody else's
+    // machine, and the key and the prompts would reach it unencrypted.
+    for (const endpoint of ["http://ingest.example", "http://127.0.0.1.example.com"])
+      expect(() => resolveConfig({ apiKey: "fs_test_x", endpoint }), endpoint).toThrow(
+        /loopback host/,
+      );
+  });
+
   it("warns once about a key that does not look like ours, and still resolves", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     expect(resolveConfig({ apiKey: "sk-other-vendor" }).apiKey).toBe("sk-other-vendor");
