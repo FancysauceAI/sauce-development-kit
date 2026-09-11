@@ -23,6 +23,12 @@ export interface PatchOptions {
  * Patches the OpenAI client class's prototypes through OpenLLMetry, and
  * resolves false when that package is not installed.
  *
+ * The patch is class-wide, because prototypes are: once one client of this
+ * class has been instrumented, every client of it in the process produces
+ * spans, whether or not it was passed to `instrument()`. Only instrumented
+ * instances carry client-bound attribution; the rest are stamped with the
+ * ambient scope and the `init()` defaults.
+ *
  * OpenLLMetry reaches the prototypes through a module namespace. Its
  * `manuallyInstrument()` reads `Chat.Completions`, `Completions`, `Responses`
  * and `Images` directly off what it is handed — the shape of the `OpenAI`

@@ -14,6 +14,12 @@ export const ANTHROPIC_METHODS = ["messages.create", "messages.stream"] as const
  * Patches the Anthropic client class's prototypes through OpenLLMetry, and
  * resolves false when that package is not installed.
  *
+ * The patch is class-wide, because prototypes are: once one client of this
+ * class has been instrumented, every client of it in the process produces
+ * spans, whether or not it was passed to `instrument()`. Only instrumented
+ * instances carry client-bound attribution; the rest are stamped with the
+ * ambient scope and the `init()` defaults.
+ *
  * Unlike the OpenAI instrumentation, this one's `manuallyInstrument()` reads
  * `Completions`, `Messages` and `Beta.Messages` from under an `.Anthropic`
  * key, exactly as its module-load path does — so the class is wrapped in that

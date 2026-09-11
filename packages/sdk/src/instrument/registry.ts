@@ -24,6 +24,8 @@ interface RegistryDeps {
 
 type Method = (...args: unknown[]) => unknown;
 
+type Wrapper = Method & { [INSTRUMENTED]?: InstrumentedTag };
+
 const METHODS: Record<Provider, readonly string[]> = {
   openai: OPENAI_METHODS,
   anthropic: ANTHROPIC_METHODS,
@@ -31,6 +33,18 @@ const METHODS: Record<Provider, readonly string[]> = {
 
 /** The per-call escape hatch, read out of whichever argument carries it. */
 const OVERRIDE_KEY = "fancysauce";
+
+/**
+ * Marks a method this SDK wrapped, and holds the options that wrapper reads.
+ * Registered globally (Symbol.for) so two copies of the SDK in one dependency
+ * tree recognize each other's wrappers instead of stacking on them.
+ */
+const INSTRUMENTED = Symbol.for("fancysauce.instrumented");
+
+/** The mutable options cell a wrapper reads at call time. */
+interface InstrumentedTag {
+  options: InstrumentOptions;
+}
 
 const SUPPORTED =
   "fancy.instrument(): unsupported client; supported: openai, anthropic " +
@@ -62,6 +76,10 @@ function ownerOf(target: object, key: string): object | null {
  * for a two-argument call — because that is where a caller naturally writes
  * it, and it is always removed: the provider SDK would either reject the
  * unknown field or forward it to the vendor.
+ *
+ * A value that is not a bag — a string, an array — is dropped with a warning
+ * rather than normalized, because normalizing it would attribute the call to
+ * keys the caller never wrote.
  */
 function takeOverride(args: unknown[]): { override: BagInput; forwarded: unknown[] } {
   for (let i = 0; i < args.length; i++) {
@@ -71,6 +89,12 @@ function takeOverride(args: unknown[]): { override: BagInput; forwarded: unknown
     const { [OVERRIDE_KEY]: override, ...rest } = arg as Record<string, unknown>;
     const forwarded = args.slice();
     forwarded[i] = rest;
+    // null and undefined are how a caller opts out of an override they built
+    // conditionally, so only a wrong *kind* of value is worth a warning.
+    if (override != null && (typeof override !== "object" || Array.isArray(override))) {
+      warnOnce("instrument:override", "the per-call fancysauce option must be an object");
+      return { override: {}, forwarded };
+    }
     return { override: (override ?? {}) as BagInput, forwarded };
   }
   return { override: {}, forwarded: args };
@@ -87,6 +111,13 @@ function takeOverride(args: unknown[]): { override: BagInput; forwarded: unknown
  * made before it lands carry their attribution but produce no span, so
  * `instrument()` belongs in startup; `ready()` is there for a caller that
  * needs the guarantee rather than the convention.
+ *
+ * The patch lands on the class's prototypes, which every client of that class
+ * shares. So instrumenting one client turns on span creation for every client
+ * of that class in the process — including ones never passed to
+ * `instrument()`. Only instrumented instances carry client-bound attribution;
+ * spans from the others get whatever ambient scope is active plus the
+ * `init()` defaults, and nothing else.
  */
 export class InstrumentRegistry {
   private readonly patched = new WeakSet<object>();
@@ -116,9 +147,15 @@ export class InstrumentRegistry {
       this.patched.add(ctor);
       const done = this.patch(provider, ctor, trace.getTracerProvider(), this.deps.traceContent)
         .then((ok) => {
+          // A patch that did not take is forgotten, so the next instrument()
+          // for this class tries again. The alternative marks a class patched
+          // on a transient import failure and never creates a span for it
+          // again, for the life of the process.
+          if (!ok) this.patched.delete(ctor);
           debug(`instrument: ${provider} class patched`, ok);
         })
         .catch((error: unknown) => {
+          this.patched.delete(ctor);
           // A client that cannot be patched still carries attribution on
           // whatever spans the host creates around it, so this is a warning
           // and not a throw: instrument() must not take the application down.
@@ -145,6 +182,17 @@ export class InstrumentRegistry {
       client,
     ) as Record<string, unknown> | undefined;
     if (!target || typeof target[method] !== "function") return;
+    // A second instrument() on the same client replaces the options its
+    // wrapper reads. Wrapping again would open one attribution scope per
+    // instrument() call, and the outer ones would keep applying options the
+    // caller has already replaced.
+    const existing = Object.prototype.hasOwnProperty.call(target, method)
+      ? (target[method] as Wrapper)[INSTRUMENTED]
+      : undefined;
+    if (existing) {
+      existing.options = opts;
+      return;
+    }
     const captured = target[method] as Method;
     const owner = ownerOf(target, method);
     // The class patch replaces the method where it lives, and it does so after
@@ -161,16 +209,21 @@ export class InstrumentRegistry {
           }
         : () => captured;
     const ctx = this.ctx;
+    const tag: InstrumentedTag = { options: opts };
+    const wrapper: Wrapper = Object.assign(
+      function (this: unknown, ...args: unknown[]): unknown {
+        const { override, forwarded } = takeOverride(args);
+        return ctx.attribute({ ...tag.options.attribution, ...override }, () =>
+          resolve().apply(this ?? target, forwarded),
+        );
+      },
+      { [INSTRUMENTED]: tag },
+    );
     try {
       Object.defineProperty(target, method, {
         configurable: true,
         writable: true,
-        value: function (this: unknown, ...args: unknown[]): unknown {
-          const { override, forwarded } = takeOverride(args);
-          return ctx.attribute({ ...opts.attribution, ...override }, () =>
-            resolve().apply(this ?? target, forwarded),
-          );
-        },
+        value: wrapper,
       });
     } catch (error) {
       warnOnce(
