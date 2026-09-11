@@ -143,21 +143,6 @@ export function createSdk(internals: SdkInternals = {}) {
     const nextCtx = new AttributionContext({ mode: resolved.context });
     const defaults = normalizeBag(resolved.attribution);
     reportDrops(defaults.dropped, "attribution");
-    // Process-wide defaults ride on the resource, where they are written once
-    // per export rather than once per span. They are stamped on every span too
-    // (see StampingProcessor's `base`) because the ingest reads identity from
-    // span attributes; the resource copy is what survives a span the SDK's
-    // processor never saw.
-    const resource = resourceFromAttributes({
-      ...(resolved.name ? { "service.name": resolved.name } : {}),
-      ...(resolved.version ? { "service.version": resolved.version } : {}),
-      [ATTR.schemaVersion]: SCHEMA_VERSION,
-      [ATTR.sdkVersion]: SDK_VERSION,
-      ...Object.fromEntries(
-        Object.entries(defaults.attribution).map(([k, v]) => [ATTR.attributionPrefix + k, v]),
-      ),
-      ...expandReserved(defaults.reserved),
-    });
     const raw = internals.exporterFactory?.(resolved);
     const exporter = raw
       ? new ContentPolicyExporter(raw, { content: resolved.content, redact: resolved.redact })
@@ -181,25 +166,50 @@ export function createSdk(internals: SdkInternals = {}) {
         scheduledDelayMillis: 2000,
       }),
     ];
-    const nextProvider = new NodeTracerProvider({ resource, spanProcessors: nextProcessors });
-    if (trace.setGlobalTracerProvider(nextProvider)) claimedGlobalProvider = true;
-    else
-      warnOnce(
-        "init:provider",
-        "an OpenTelemetry tracer provider is already registered; pass fancy.spanProcessors() to it or call fancy.init() first",
-      );
-    // NodeTracerProvider installs a context manager only from register(), which
-    // would also claim the global provider and propagator. We claim the
-    // provider above so the already-registered case stays visible, which leaves
-    // the context manager to install here — without one, context.active() never
-    // holds a span and every span the application starts is a root span.
-    if (resolved.registerContextManager && !hasContextManager()) {
-      const manager = new AsyncLocalStorageContextManager();
-      manager.enable();
-      if (context.setGlobalContextManager(manager)) installedContextManager = true;
-      else {
-        manager.disable();
-        warnOnce("init:ctxmgr", "could not install a context manager; spans may not nest");
+    // registerProvider: false leaves the provider, the resource and the context
+    // manager to the host, which builds its own provider from
+    // spanProcessors(). Constructing one here would be dead weight: an OTel 2.x
+    // provider takes its processors at construction, so a second provider
+    // cannot be handed the host's, and one that never becomes global exports
+    // nothing.
+    let nextProvider: NodeTracerProvider | undefined;
+    if (resolved.registerProvider) {
+      // Process-wide defaults ride on the resource, where they are written once
+      // per export rather than once per span. They are stamped on every span
+      // too (see StampingProcessor's `base`) because the ingest reads identity
+      // from span attributes; the resource copy is what survives a span the
+      // SDK's processor never saw.
+      const resource = resourceFromAttributes({
+        ...(resolved.name ? { "service.name": resolved.name } : {}),
+        ...(resolved.version ? { "service.version": resolved.version } : {}),
+        [ATTR.schemaVersion]: SCHEMA_VERSION,
+        [ATTR.sdkVersion]: SDK_VERSION,
+        ...Object.fromEntries(
+          Object.entries(defaults.attribution).map(([k, v]) => [ATTR.attributionPrefix + k, v]),
+        ),
+        ...expandReserved(defaults.reserved),
+      });
+      nextProvider = new NodeTracerProvider({ resource, spanProcessors: nextProcessors });
+      if (trace.setGlobalTracerProvider(nextProvider)) claimedGlobalProvider = true;
+      else
+        warnOnce(
+          "init:provider",
+          "an OpenTelemetry tracer provider is already registered, so the one fancy.init() built creates no spans; call fancy.init({ registerProvider: false }) and build your provider with fancy.spanProcessors()",
+        );
+      // NodeTracerProvider installs a context manager only from register(),
+      // which would also claim the global provider and propagator. We claim the
+      // provider above so the already-registered case stays visible, which
+      // leaves the context manager to install here — without one,
+      // context.active() never holds a span and every span the application
+      // starts is a root span.
+      if (resolved.registerContextManager && !hasContextManager()) {
+        const manager = new AsyncLocalStorageContextManager();
+        manager.enable();
+        if (context.setGlobalContextManager(manager)) installedContextManager = true;
+        else {
+          manager.disable();
+          warnOnce("init:ctxmgr", "could not install a context manager; spans may not nest");
+        }
       }
     }
     cfg = resolved;
@@ -213,15 +223,23 @@ export function createSdk(internals: SdkInternals = {}) {
     instrument,
     vercelTelemetry,
     config: (): ResolvedConfig | undefined => cfg,
-    /** For applications that own their tracer provider: register these on it. */
+    /**
+     * For applications that own their tracer provider: call
+     * `init({ registerProvider: false })` and construct the provider with
+     * these, which is the only way an OTel 2.x provider accepts processors.
+     */
     spanProcessors: (): SpanProcessor[] => processors,
     attribute,
     context: (): AttributionContext => ctx,
+    // With registerProvider: false there is no provider to drive the
+    // processors, so they are flushed and shut down directly.
     forceFlush: async (): Promise<void> => {
-      await provider?.forceFlush();
+      if (provider) await provider.forceFlush();
+      else await Promise.all(processors.map((p) => p.forceFlush()));
     },
     shutdown: async (): Promise<void> => {
-      await provider?.shutdown();
+      if (provider) await provider.shutdown();
+      else await Promise.all(processors.map((p) => p.shutdown()));
       // The global tracer proxy keeps delegating to a shut-down provider
       // forever, and setGlobalTracerProvider refuses to replace one that is
       // still registered — so a shutdown that does not release the global

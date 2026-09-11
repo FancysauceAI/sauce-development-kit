@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { context, trace } from "@opentelemetry/api";
+import { resourceFromAttributes } from "@opentelemetry/resources";
+import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 import {
   BasicTracerProvider,
   InMemorySpanExporter,
@@ -184,6 +186,38 @@ describe("init", () => {
     trace.getTracer("app").startSpan("two").end();
     await sdk.forceFlush();
     expect(second.getFinishedSpans().map((s) => s.name)).toEqual(["two"]);
+  });
+
+  it("hands its processors to a host-owned provider when registerProvider is false", async () => {
+    const mem = new InMemorySpanExporter();
+    const set = vi.spyOn(context, "setGlobalContextManager");
+    sdk = createSdk({ exporterFactory: () => mem });
+    sdk.init({
+      apiKey: "fs_test_x",
+      name: "ignored",
+      registerProvider: false,
+      attribution: { environment: "prod" },
+    });
+    // The context manager is the host's to install too, through register().
+    expect(set).not.toHaveBeenCalled();
+    const hostProvider = new NodeTracerProvider({
+      resource: resourceFromAttributes({ "service.name": "host-app" }),
+      spanProcessors: sdk.spanProcessors(),
+    });
+    hostProvider.register();
+    await sdk.attribute({ customer: "acme" }, async () => {
+      await Promise.resolve();
+      trace.getTracer("app").startSpan("chat").end();
+    });
+    await sdk.forceFlush();
+    const span = mem.getFinishedSpans()[0];
+    expect(span.attributes["fancysauce.attribution.customer"]).toBe("acme");
+    expect(span.attributes["fancysauce.attribution.environment"]).toBe("prod");
+    // init() built no resource, so the one on the export is the host's alone.
+    expect(span.resource.attributes["service.name"]).toBe("host-app");
+    expect(span.resource.attributes["fancysauce.sdk.version"]).toBeUndefined();
+    await hostProvider.shutdown();
+    set.mockRestore();
   });
 
   it("leaves a tracer provider the host registered first alone on shutdown", async () => {

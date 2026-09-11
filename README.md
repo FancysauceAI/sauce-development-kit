@@ -220,18 +220,19 @@ Batches are capped separately, by the ingest. When a batch comes back `413 Paylo
 
 `fancy.init(options)` — call it once, at startup. A second call warns and keeps the first configuration.
 
-| Option                   | Type                                           | Default                        | What it does                                                                                                                                                  |
-| ------------------------ | ---------------------------------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `apiKey`                 | `string`                                       | required                       | Your Fancysauce API key (`fs_live_…` or `fs_test_…`). Missing or empty throws; a key without an `fs_` prefix warns but still starts.                          |
-| `name`                   | `string`                                       | unset                          | How this application appears in the dashboard. Becomes `service.name`.                                                                                        |
-| `version`                | `string`                                       | unset                          | Application version. Becomes `service.version`.                                                                                                               |
-| `endpoint`               | `string`                                       | `https://ingest.fancysauce.ai` | Ingest base URL; trailing slashes are stripped, and a value that is not an `http(s)` URL throws.                                                              |
-| `attribution`            | bag                                            | `{}`                           | Process-wide attribution defaults, stamped on every span.                                                                                                     |
-| `content`                | `"full" \| "none"`                             | `"full"`                       | Capture prompts and responses.                                                                                                                                |
-| `redact`                 | `(value: string, attribute: string) => string` | unset                          | Runs on each content attribute before it leaves the process.                                                                                                  |
-| `context`                | `"auto" \| "global"`                           | `"auto"`                       | `"auto"` isolates concurrent flows with `AsyncLocalStorage`. `"global"` is single-flow mode for scripts and batch jobs: one process-wide scope, no isolation. |
-| `registerContextManager` | `boolean`                                      | `true`                         | Install an `AsyncLocalStorage` context manager when none is present. Set `false` when your host installs its own later in startup.                            |
-| `debug`                  | `boolean`                                      | `false`                        | Log SDK internals with `console.debug`.                                                                                                                       |
+| Option                   | Type                                           | Default                        | What it does                                                                                                                                                                   |
+| ------------------------ | ---------------------------------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `apiKey`                 | `string`                                       | required                       | Your Fancysauce API key (`fs_live_…` or `fs_test_…`). Missing or empty throws; a key without an `fs_` prefix warns but still starts.                                           |
+| `name`                   | `string`                                       | unset                          | How this application appears in the dashboard. Becomes `service.name`.                                                                                                         |
+| `version`                | `string`                                       | unset                          | Application version. Becomes `service.version`.                                                                                                                                |
+| `endpoint`               | `string`                                       | `https://ingest.fancysauce.ai` | Ingest base URL; trailing slashes are stripped, and a value that is not an `http(s)` URL throws.                                                                               |
+| `attribution`            | bag                                            | `{}`                           | Process-wide attribution defaults, stamped on every span.                                                                                                                      |
+| `content`                | `"full" \| "none"`                             | `"full"`                       | Capture prompts and responses.                                                                                                                                                 |
+| `redact`                 | `(value: string, attribute: string) => string` | unset                          | Runs on each content attribute before it leaves the process.                                                                                                                   |
+| `context`                | `"auto" \| "global"`                           | `"auto"`                       | `"auto"` isolates concurrent flows with `AsyncLocalStorage`. `"global"` is single-flow mode for scripts and batch jobs: one process-wide scope, no isolation.                  |
+| `registerProvider`       | `boolean`                                      | `true`                         | Build a tracer provider and register it globally. Set `false` to own the provider yourself — see [Bringing your own tracer provider](#bringing-your-own-tracer-provider).      |
+| `registerContextManager` | `boolean`                                      | `true`                         | Install an `AsyncLocalStorage` context manager when none is present. Set `false` when your host installs its own later in startup. Ignored when `registerProvider` is `false`. |
+| `debug`                  | `boolean`                                      | `false`                        | Log SDK internals with `console.debug`.                                                                                                                                        |
 
 The runtime surface is the `fancy` object:
 
@@ -254,13 +255,27 @@ Two subpaths sit beside it:
 
 ### Bringing your own tracer provider
 
-If your application already owns an OpenTelemetry tracer provider, call `fancy.init()` first — it will warn that a provider is registered — then register the SDK's processors on yours:
+If your application owns its own OpenTelemetry tracer provider, tell `init()` not to build one. It still resolves your configuration and builds the span processors — stamping, plus batching and export — and `spanProcessors()` hands them over for your provider's constructor:
 
 ```ts
-const processors = fancy.spanProcessors(); // stamping + batching/export
+import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
+
+fancy.init({ apiKey: process.env.FANCYSAUCE_API_KEY!, registerProvider: false });
+
+const provider = new NodeTracerProvider({
+  resource: myResource,
+  spanProcessors: [...myProcessors, ...fancy.spanProcessors()],
+});
+provider.register();
 ```
 
-The processors are all you get: the resource is then yours to set. `service.name`, `service.version`, `fancysauce.schema_version`, `fancysauce.sdk.version`, and the `init({ attribution })` copy live on the resource `init()` built for its own provider, so none of them ship unless you put them on yours. Every span still carries the attribution itself, which the stamping processor writes.
+The constructor is the only seam — an OpenTelemetry SDK 2.x provider accepts processors there and nowhere else — which is why `init()` runs first and your provider is built from what it returns. `register()` is yours to call, and it installs the context manager, so `registerContextManager` does nothing in this mode.
+
+The processors are all you get: the resource is yours to set. `service.name`, `service.version`, `fancysauce.schema_version`, `fancysauce.sdk.version`, and the `init({ attribution })` copy live on the resource `init()` builds for its own provider, so none of them ship unless you put them on yours. Every span still carries the attribution itself, which the stamping processor writes.
+
+`fancy.instrument()` works unchanged: it patches the client's class against whatever provider is globally registered, which is now yours. `forceFlush()` and `shutdown()` drive the SDK's own processors and leave your provider alone.
+
+Leaving `registerProvider` at its default while a provider is already registered is not a way to do this, and `init()` warns about it: the provider it built never becomes global, so no span reaches the stamping processor or the exporter.
 
 ## Vercel AI SDK
 
@@ -302,7 +317,7 @@ export async function handler(event) {
 }
 ```
 
-`forceFlush()` leaves the SDK usable, which is what you want when the runtime reuses the instance for the next invocation. `shutdown()` is the end-of-process call: it flushes, shuts the exporter down, and releases the global tracer provider and any context manager `init()` installed.
+`forceFlush()` leaves the SDK usable, which is what you want when the runtime reuses the instance for the next invocation. `shutdown()` is the end-of-process call: it flushes, shuts the exporter down, and releases the global tracer provider and the context manager — each only if `init()` was the one that claimed it.
 
 Run `init()` at module scope, not inside the handler — a second `init()` is a no-op that warns, and instrumenting on every invocation wastes the work.
 
@@ -310,7 +325,7 @@ Run `init()` at module scope, not inside the handler — a second `init()` is a 
 
 The SDK is a thin, opinionated OpenTelemetry setup. Nothing here is a private protocol.
 
-**`init()`** resolves your configuration and builds a `NodeTracerProvider` with two span processors, then registers it as the global tracer provider. It also installs an `AsyncLocalStorage` context manager if none is present — without one, nothing nests and every span is a root span. Your process-wide attribution goes onto the OpenTelemetry resource, where it is written once per export rather than once per span. The precedence above is about span attributes; the resource copy is the configuration as `init()` resolved it, and a scope that overrides one of those keys does not change it.
+**`init()`** resolves your configuration and builds two span processors. Unless you passed `registerProvider: false`, it wraps them in a `NodeTracerProvider` and registers that as the global tracer provider, and installs an `AsyncLocalStorage` context manager if none is present — without one, nothing nests and every span is a root span. Your process-wide attribution goes onto the OpenTelemetry resource, where it is written once per export rather than once per span. The precedence above is about span attributes; the resource copy is the configuration as `init()` resolved it, and a scope that overrides one of those keys does not change it.
 
 **`instrument(client)`** does two separate things. It patches the client's _class_ through the OpenLLMetry instrumentation package for that provider, which is what creates the spans — and because prototypes are shared, that turns on span creation for every client of that class in the process, including ones you never passed in. And it wraps the _instance's_ known methods so each call runs inside its attribution scope. Only instrumented instances carry client-bound attribution; spans from the others get the ambient scope and the `init()` defaults.
 

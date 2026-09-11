@@ -24,6 +24,13 @@ export interface InitOptions {
    */
   context?: ContextMode;
   /**
+   * Build a tracer provider and register it globally. Default true. Set false
+   * when the application owns its own provider: init() then builds only the
+   * span processors, which `fancy.spanProcessors()` hands back for the host to
+   * construct its provider with, and installs no context manager either.
+   */
+  registerProvider?: boolean;
+  /**
    * Install an AsyncLocalStorage context manager when none is present. Default
    * true. Set false when the host installs its own later in startup, which
    * would otherwise leave two managers disagreeing about the active span.
@@ -43,6 +50,7 @@ export interface ResolvedConfig {
   content: ContentMode;
   redact: InitOptions["redact"];
   context: ContextMode;
+  registerProvider: boolean;
   registerContextManager: boolean;
   debug: boolean;
 }
@@ -82,6 +90,7 @@ export function resolveConfig(options: InitOptions): ResolvedConfig {
     content: options.content ?? "full",
     redact: options.redact,
     context: options.context ?? "auto",
+    registerProvider: options.registerProvider ?? true,
     registerContextManager: options.registerContextManager ?? true,
     debug: options.debug ?? false,
   };
