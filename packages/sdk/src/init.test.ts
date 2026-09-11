@@ -124,6 +124,9 @@ describe("init", () => {
     sdk = createSdk({ exporterFactory: () => new InMemorySpanExporter() });
     sdk.init({ apiKey: "fs_test_x" });
     expect(sdk.spanProcessors()).toHaveLength(2);
+    // A copy: a host that splices what it was handed must not reach the array
+    // forceFlush() and shutdown() drive.
+    expect(sdk.spanProcessors()).not.toBe(sdk.spanProcessors());
   });
 
   it("installs a context manager so spans started inside a parent nest under it", async () => {

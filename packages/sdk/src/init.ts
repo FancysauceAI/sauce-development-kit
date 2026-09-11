@@ -227,8 +227,11 @@ export function createSdk(internals: SdkInternals = {}) {
      * For applications that own their tracer provider: call
      * `init({ registerProvider: false })` and construct the provider with
      * these, which is the only way an OTel 2.x provider accepts processors.
+     *
+     * A copy, so a host that sorts or splices what it was handed does not
+     * reach the array `forceFlush()` and `shutdown()` drive.
      */
-    spanProcessors: (): SpanProcessor[] => processors,
+    spanProcessors: (): SpanProcessor[] => [...processors],
     attribute,
     context: (): AttributionContext => ctx,
     // With registerProvider: false there is no provider to drive the
