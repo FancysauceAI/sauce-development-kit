@@ -1,7 +1,6 @@
 // The wire contract between this SDK and the Fancysauce ingest. This module
 // has no runtime dependencies so the ingest can pin it directly.
 
-export const SOURCE_TYPE = "fancysauce_sdk" as const;
 export const SCHEMA_VERSION = "1.0.0" as const;
 
 export const ATTR = {

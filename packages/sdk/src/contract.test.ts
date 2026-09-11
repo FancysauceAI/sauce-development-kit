@@ -7,13 +7,11 @@ import {
   REFUSED_KEY_PREFIXES,
   RESERVED_KEYS,
   SCHEMA_VERSION,
-  SOURCE_TYPE,
   VALUE_MAX_LENGTH,
 } from "./contract.js";
 
 describe("contract", () => {
-  it("names the source type and schema version the ingest expects", () => {
-    expect(SOURCE_TYPE).toBe("fancysauce_sdk");
+  it("names the schema version the ingest expects", () => {
     expect(SCHEMA_VERSION).toBe("1.0.0");
   });
   it("prefixes attribution and metadata attributes", () => {
