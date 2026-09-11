@@ -11,6 +11,11 @@ const { version } = JSON.parse(
 export default defineConfig({
   entry: { index: "src/index.ts", contract: "src/contract.ts", vercel: "src/vercel.ts" },
   format: ["esm", "cjs"],
+  // On for CJS as well as ESM, where it is the default. The `.` and `./vercel`
+  // entries share the one process SDK, and without splitting each CJS entry
+  // bundles its own copy of it: `require()`ing both would hand out two SDKs,
+  // and the one behind the subpath would never see init().
+  splitting: true,
   dts: true,
   sourcemap: true,
   clean: true,

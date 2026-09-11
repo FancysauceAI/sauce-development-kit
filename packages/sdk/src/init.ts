@@ -25,6 +25,7 @@ import {
   type InstrumentOptions,
 } from "./instrument/registry.js";
 import { StampingProcessor } from "./processors/stamping-processor.js";
+import { buildVercelTelemetry, type VercelTelemetry } from "./vercel-telemetry.js";
 
 export interface SdkInternals {
   /** Test seam: replaces the OTLP exporter; the content policy still wraps it. */
@@ -76,6 +77,10 @@ export function createSdk(internals: SdkInternals = {}) {
   /**
    * Wraps an OpenAI or Anthropic client so its calls carry attribution, and
    * patches its class so they produce spans.
+   *
+   * This throws before `init()` where `vercelTelemetry()` only warns: the wrap
+   * has to bind the live attribution context, which does not exist yet, while
+   * the telemetry object carries no context and its tracer resolves lazily.
    */
   function instrument<T extends object>(client: T, opts?: InstrumentOptions): T {
     if (!cfg)
@@ -90,6 +95,28 @@ export function createSdk(internals: SdkInternals = {}) {
       patch: internals.instrumentPatch,
     });
     return registry.instrument(client, opts);
+  }
+
+  /**
+   * Telemetry options for a Vercel AI SDK call, carrying the content policy
+   * `init({ content })` resolved.
+   *
+   * Vercel AI SDK 4/5: pass as `experimental_telemetry`. 7: pass as
+   * `telemetry`; v7 ignores `tracer` and uses the tracer provider
+   * `fancy.init()` registers globally, so `init()` must run at startup either
+   * way.
+   */
+  function vercelTelemetry(): VercelTelemetry {
+    // The content policy is frozen into the returned object, so one built
+    // before init() goes on recording prompts and responses however init()
+    // later resolves `content`. Lazy getters would track it and break the
+    // documented spread, which evaluates them eagerly.
+    if (!cfg)
+      warnOnce(
+        "vercel:preinit",
+        "fancy.vercelTelemetry() called before fancy.init(); it records prompt and response content, and keeps doing so after an init({ content }) that turns that off — build it after init()",
+      );
+    return buildVercelTelemetry({ content: cfg?.content ?? "full" });
   }
 
   function init(options: InitOptions): void {
@@ -170,6 +197,7 @@ export function createSdk(internals: SdkInternals = {}) {
   return {
     init,
     instrument,
+    vercelTelemetry,
     config: (): ResolvedConfig | undefined => cfg,
     /** For applications that own their tracer provider: register these on it. */
     spanProcessors: (): SpanProcessor[] => processors,
