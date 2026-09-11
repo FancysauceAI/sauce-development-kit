@@ -1,5 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ExportResultCode, type ExportResult } from "@opentelemetry/core";
+import { ROOT_CONTEXT, SpanStatusCode, trace } from "@opentelemetry/api";
+import { JsonTraceSerializer } from "@opentelemetry/otlp-transformer";
 import {
   BasicTracerProvider,
   InMemorySpanExporter,
@@ -8,6 +10,7 @@ import {
   type SpanExporter,
 } from "@opentelemetry/sdk-trace-base";
 import { ContentPolicyExporter } from "./content-policy-exporter.js";
+import { resetDiagnostics } from "../diagnostics.js";
 
 class CaptureExporter implements SpanExporter {
   batches: ReadableSpan[][] = [];
@@ -36,10 +39,44 @@ function spanWith(attrs: Record<string, string>): ReadableSpan {
   return mem.getFinishedSpans()[0];
 }
 
+/** A child span carrying everything the OTLP span shape has room for. */
+function richChildSpan(): { span: ReadableSpan; parentSpanId: string; linkedSpanId: string } {
+  const mem = new InMemorySpanExporter();
+  const p = new BasicTracerProvider({ spanProcessors: [new SimpleSpanProcessor(mem)] });
+  const tracer = p.getTracer("t");
+  const parent = tracer.startSpan("parent");
+  const linked = tracer.startSpan("linked");
+  const child = tracer.startSpan(
+    "chat",
+    {
+      attributes: {
+        "gen_ai.input.messages": "secret",
+        "gen_ai.output.messages": "also secret",
+        "gen_ai.request.model": "m",
+      },
+      links: [{ context: linked.spanContext() }],
+    },
+    trace.setSpan(ROOT_CONTEXT, parent),
+  );
+  child.addEvent("first-token");
+  child.addEvent("last-token");
+  child.setStatus({ code: SpanStatusCode.ERROR, message: "boom" });
+  child.end();
+  return {
+    span: mem.getFinishedSpans()[0],
+    parentSpanId: parent.spanContext().spanId,
+    linkedSpanId: linked.spanContext().spanId,
+  };
+}
+
 const exportOnce = (ex: SpanExporter, spans: ReadableSpan[]): Promise<ExportResult> =>
   new Promise<ExportResult>((resolve) => ex.export(spans, resolve));
 
 describe("ContentPolicyExporter", () => {
+  beforeEach(() => {
+    resetDiagnostics();
+  });
+
   it("content: none strips the three content attributes and nothing else", async () => {
     const inner = new CaptureExporter();
     await exportOnce(new ContentPolicyExporter(inner, { content: "none" }), [
@@ -74,6 +111,39 @@ describe("ContentPolicyExporter", () => {
     expect(attrs["fancysauce.content.truncated"]).toBe(true);
   });
 
+  it("drops the attribute and warns when redact throws", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const inner = new CaptureExporter();
+    const ex = new ContentPolicyExporter(inner, {
+      content: "full",
+      redact: () => {
+        throw new Error("regex blew up");
+      },
+    });
+    await exportOnce(ex, [
+      spanWith({ "gen_ai.input.messages": "secret", "gen_ai.request.model": "m" }),
+    ]);
+    expect(inner.batches[0][0].attributes).toEqual({ "gen_ai.request.model": "m" });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("gen_ai.input.messages"));
+    warn.mockRestore();
+  });
+
+  it("drops the attribute and warns when redact returns something other than a string", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const inner = new CaptureExporter();
+    const ex = new ContentPolicyExporter(inner, {
+      content: "full",
+      // A redactor that forgets to return is the common shape of this mistake.
+      redact: (() => undefined) as unknown as (v: string, a: string) => string,
+    });
+    await exportOnce(ex, [
+      spanWith({ "gen_ai.input.messages": "secret", "gen_ai.request.model": "m" }),
+    ]);
+    expect(inner.batches[0][0].attributes).toEqual({ "gen_ai.request.model": "m" });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("gen_ai.input.messages"));
+    warn.mockRestore();
+  });
+
   it("truncation never leaves a broken UTF-8 tail", async () => {
     const inner = new CaptureExporter();
     await exportOnce(new ContentPolicyExporter(inner, { content: "full", maxBytes: 5 }), [
@@ -91,15 +161,53 @@ describe("ContentPolicyExporter", () => {
     expect(s.attributes["gen_ai.input.messages"]).toBe("keep");
   });
 
+  it("passes a span with no content attribute through untouched", async () => {
+    const inner = new CaptureExporter();
+    const s = spanWith({ "gen_ai.request.model": "m" });
+    await exportOnce(new ContentPolicyExporter(inner, { content: "none" }), [s]);
+    expect(inner.batches[0][0]).toBe(s);
+  });
+
   it("keeps the span's methods and fields reachable on the sanitized copy", async () => {
     const inner = new CaptureExporter();
-    await exportOnce(new ContentPolicyExporter(inner, { content: "none" }), [spanWith({ a: "b" })]);
+    await exportOnce(new ContentPolicyExporter(inner, { content: "none" }), [
+      spanWith({ "gen_ai.input.messages": "secret" }),
+    ]);
     const copy = inner.batches[0][0];
     expect(typeof copy.spanContext).toBe("function");
     expect(copy.spanContext().traceId).toHaveLength(32);
     expect(copy.name).toBe("chat");
     expect(copy.resource).toBeDefined();
     expect(copy.instrumentationScope.name).toBe("t");
+  });
+
+  it("survives OTLP serialization with every span field intact", async () => {
+    const { span, parentSpanId, linkedSpanId } = richChildSpan();
+    const inner = new CaptureExporter();
+    await exportOnce(new ContentPolicyExporter(inner, { content: "none" }), [span]);
+    const bytes = JsonTraceSerializer.serializeRequest([inner.batches[0][0]]);
+    const request = JSON.parse(new TextDecoder().decode(bytes)) as {
+      resourceSpans: {
+        scopeSpans: {
+          spans: {
+            name: string;
+            parentSpanId: string;
+            attributes: { key: string }[];
+            events: unknown[];
+            links: { spanId: string }[];
+            status: { code: number; message: string };
+          }[];
+        }[];
+      }[];
+    };
+    const wire = request.resourceSpans[0].scopeSpans[0].spans[0];
+    expect(wire.name).toBe("chat");
+    expect(wire.parentSpanId).toBe(parentSpanId);
+    expect(wire.attributes.map((a) => a.key)).toEqual(["gen_ai.request.model"]);
+    expect(wire.events).toHaveLength(2);
+    expect(wire.links).toHaveLength(1);
+    expect(wire.links[0].spanId).toBe(linkedSpanId);
+    expect(wire.status).toEqual({ code: SpanStatusCode.ERROR, message: "boom" });
   });
 
   it("on HTTP 413 splits the batch in halves and retries", async () => {
@@ -164,7 +272,34 @@ describe("ContentPolicyExporter", () => {
     expect(inner.batches.map((b) => b.length)).toEqual([2, 1, 1]);
   });
 
-  it("reports the first half's failure without attempting the second", async () => {
+  it("an oversized span at the head of the batch does not block the spans behind it", async () => {
+    const inner = new CaptureExporter();
+    // Span 1 is over the ingest's limit on its own: every batch holding it
+    // 413s, however far the halving descends.
+    inner.export = (spans, cb) => {
+      inner.batches.push(spans);
+      if (spans.some((s) => s.attributes.a === "1")) {
+        cb({
+          code: ExportResultCode.FAILED,
+          error: Object.assign(new Error("too large"), { code: 413 }),
+        });
+        return;
+      }
+      cb({ code: ExportResultCode.SUCCESS });
+    };
+    const r = await exportOnce(new ContentPolicyExporter(inner, { content: "full" }), [
+      spanWith({ a: "1" }),
+      spanWith({ a: "2" }),
+      spanWith({ a: "3" }),
+    ]);
+    expect(r.code).toBe(ExportResultCode.FAILED);
+    const delivered = inner.batches
+      .filter((b) => !b.some((s) => s.attributes.a === "1"))
+      .flatMap((b) => b.map((s) => s.attributes.a));
+    expect(delivered).toEqual(["2", "3"]);
+  });
+
+  it("skips the second half only when the first half failed for a reason other than 413", async () => {
     const inner = new CaptureExporter();
     inner.export = (spans, cb) => {
       inner.batches.push(spans);
@@ -182,6 +317,10 @@ describe("ContentPolicyExporter", () => {
       spanWith({ a: "2" }),
     ]);
     expect(r.code).toBe(ExportResultCode.FAILED);
+    // A non-413 failure is the collector being unreachable, not this batch
+    // being too big; sending the second half would be a second doomed request
+    // per level of the descent. A 413 failure means the opposite, so the
+    // second half is always attempted there.
     expect(inner.batches.map((b) => b.length)).toEqual([2, 1]);
   });
 });
