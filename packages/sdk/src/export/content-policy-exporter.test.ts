@@ -11,7 +11,7 @@ import {
   type SpanExporter,
 } from "@opentelemetry/sdk-trace-base";
 import { ContentPolicyExporter } from "./content-policy-exporter.js";
-import { resetDiagnostics } from "../diagnostics.js";
+import { resetDiagnostics, setDebug } from "../diagnostics.js";
 
 class CaptureExporter implements SpanExporter {
   batches: ReadableSpan[][] = [];
@@ -155,6 +155,29 @@ describe("ContentPolicyExporter", () => {
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining("redact() threw for gen_ai.input.messages"),
     );
+    warn.mockRestore();
+  });
+
+  it("keeps what the redactor was given out of the debug log", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const log = vi.spyOn(console, "debug").mockImplementation(() => {});
+    setDebug(true);
+    const inner = new CaptureExporter();
+    const ex = new ContentPolicyExporter(inner, {
+      content: "full",
+      // A redactor whose failure quotes the value it choked on, which is the
+      // shape that would otherwise put the prompt in the host's logs.
+      redact: (value) => {
+        throw new Error(`cannot parse ${value}`);
+      },
+    });
+    await exportOnce(ex, [spanWith({ "gen_ai.input.messages": "swordfish" })]);
+    expect(log).toHaveBeenCalledWith(
+      expect.stringContaining("redact() threw for gen_ai.input.messages"),
+      "Error",
+    );
+    expect(JSON.stringify(log.mock.calls)).not.toContain("swordfish");
+    log.mockRestore();
     warn.mockRestore();
   });
 

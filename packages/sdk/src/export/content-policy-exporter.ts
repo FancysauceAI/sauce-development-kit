@@ -82,9 +82,10 @@ export class ContentPolicyExporter implements SpanExporter {
     } catch (error) {
       // The two failures need different fixes — a bug inside the redactor
       // versus a redactor that forgot to return — so they are reported
-      // differently, and the thrown error goes to debug() rather than to the
-      // warning, where it would print a stack trace over the host's logs.
-      debug(`redact() threw for ${key}`, error);
+      // differently. Only the error's kind travels: a redactor that chokes
+      // routinely quotes what it was given, and that is the prompt this
+      // policy exists to keep out of the host's logs.
+      debug(`redact() threw for ${key}`, error instanceof Error ? error.name : typeof error);
       warnOnce(`redact:${key}`, `redact() threw for ${key}; the attribute was dropped`);
       return null;
     }
