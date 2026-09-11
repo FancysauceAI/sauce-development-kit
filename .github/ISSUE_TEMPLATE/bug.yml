@@ -1,0 +1,17 @@
+name: Bug report
+description: Something is not working
+body:
+  - type: input
+    id: version
+    attributes: { label: "@fancysauce/sdk version" }
+    validations: { required: true }
+  - type: input
+    id: runtime
+    attributes: { label: "Runtime (Node/Bun/Deno + version)" }
+  - type: textarea
+    id: repro
+    attributes: { label: "Minimal reproduction" }
+    validations: { required: true }
+  - type: textarea
+    id: expected
+    attributes: { label: "Expected vs actual" }
