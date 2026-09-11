@@ -7,6 +7,7 @@ import {
   BasicTracerProvider,
   InMemorySpanExporter,
   SimpleSpanProcessor,
+  type SpanExporter,
 } from "@opentelemetry/sdk-trace-base";
 import { createSdk } from "./init.js";
 import { resetDiagnostics } from "./diagnostics.js";
@@ -186,6 +187,23 @@ describe("init", () => {
     trace.getTracer("app").startSpan("two").end();
     await sdk.forceFlush();
     expect(second.getFinishedSpans().map((s) => s.name)).toEqual(["two"]);
+  });
+
+  it("releases the globals when the exporter's shutdown rejects, and still rejects", async () => {
+    const failing = new InMemorySpanExporter();
+    failing.shutdown = () => Promise.reject(new Error("exporter shutdown blew up"));
+    const second = new InMemorySpanExporter();
+    const pool: SpanExporter[] = [failing, second];
+    sdk = createSdk({ exporterFactory: () => pool.shift()! });
+    sdk.init({ apiKey: "fs_test_x" });
+    await expect(sdk.shutdown()).rejects.toThrow("exporter shutdown blew up");
+    // A rejection that left the global provider claimed would make this init()
+    // the silent kind: it builds a provider that never becomes global, and
+    // every span after it goes nowhere.
+    sdk.init({ apiKey: "fs_test_x" });
+    trace.getTracer("app").startSpan("after").end();
+    await sdk.forceFlush();
+    expect(second.getFinishedSpans().map((s) => s.name)).toEqual(["after"]);
   });
 
   it("hands its processors to a host-owned provider when registerProvider is false", async () => {

@@ -238,27 +238,34 @@ export function createSdk(internals: SdkInternals = {}) {
       else await Promise.all(processors.map((p) => p.forceFlush()));
     },
     shutdown: async (): Promise<void> => {
-      if (provider) await provider.shutdown();
-      else await Promise.all(processors.map((p) => p.shutdown()));
-      // The global tracer proxy keeps delegating to a shut-down provider
-      // forever, and setGlobalTracerProvider refuses to replace one that is
-      // still registered — so a shutdown that does not release the global
-      // makes every later init() a no-op that silently drops every span. Only
-      // the provider init() actually claimed is released: disabling one the
-      // host registered would silence the host's own tracing.
-      if (claimedGlobalProvider) {
-        trace.disable();
-        claimedGlobalProvider = false;
+      try {
+        if (provider) await provider.shutdown();
+        else await Promise.all(processors.map((p) => p.shutdown()));
+      } finally {
+        // The global tracer proxy keeps delegating to a shut-down provider
+        // forever, and setGlobalTracerProvider refuses to replace one that is
+        // still registered — so a shutdown that does not release the global
+        // makes every later init() a no-op that silently drops every span.
+        // Released in `finally` because an exporter that fails on its way out
+        // is exactly when a caller retries init(), and a rejection that left
+        // the globals claimed would make the retry the silent kind. The
+        // rejection still reaches the caller. Only the provider init()
+        // actually claimed is released: disabling one the host registered
+        // would silence the host's own tracing.
+        if (claimedGlobalProvider) {
+          trace.disable();
+          claimedGlobalProvider = false;
+        }
+        if (installedContextManager) {
+          context.disable();
+          installedContextManager = false;
+        }
+        provider = undefined;
+        cfg = undefined;
+        processors = [];
+        registry = undefined;
+        ctx = new AttributionContext({ mode: "auto" });
       }
-      if (installedContextManager) {
-        context.disable();
-        installedContextManager = false;
-      }
-      provider = undefined;
-      cfg = undefined;
-      processors = [];
-      registry = undefined;
-      ctx = new AttributionContext({ mode: "auto" });
     },
   };
 }
