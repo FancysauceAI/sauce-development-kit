@@ -195,7 +195,7 @@ fancy.init({ apiKey, content: "none" });
 
 `"none"` works at both layers: the instrumentation is told not to record content in the first place, and the exporter strips those three attributes on the way out as a backstop. Token counts, model names, latency, attribution, and everything else still ship.
 
-The backstop is exactly those three keys and nothing else. Any other attribute carrying prompt or response text — one your own code sets, one another instrumentation writes, the ones the Vercel AI SDK records under its own names — passes through untouched, and is governed only by whatever told that layer to record it. For the AI SDK that is `recordInputs` and `recordOutputs`; see [Vercel AI SDK](#vercel-ai-sdk).
+The backstop is exactly those three keys and nothing else. Any other attribute carrying prompt or response text — the ones the Vercel AI SDK records under its own names, anything an instrumentation writes outside those three — passes through untouched, and is governed only by whatever told that layer to record it. For the AI SDK that is `recordInputs` and `recordOutputs`; see [Vercel AI SDK](#vercel-ai-sdk).
 
 ### Redacting
 
@@ -214,9 +214,11 @@ The value arrives already serialized — the GenAI conventions carry these as JS
 
 Spans. Each export is an OTLP/HTTP JSON request to `${endpoint}/v1/traces`, gzipped, with your API key as a bearer token. The SDK reads nothing else about your process — no environment, no configuration files, no source.
 
-Which spans is the part worth reading twice. With `registerProvider` at its default, `init()` owns the global tracer provider, so every span created against it is exported — not only the LLM ones. A span your own code starts, or a span from any other OpenTelemetry instrumentation you have loaded, goes to Fancysauce as well, carrying whatever that instrumentation puts on it: request URLs, SQL statements, exception messages and stack traces on recorded errors. `content: "none"` and `redact` reach none of that; both act only on the three GenAI content attributes above.
+Which spans is the part worth reading twice, and the answer is: only the AI ones. The spans the clients you passed to `instrument()` produce, and the spans the Vercel AI SDK produces. This SDK exports the spans its wrapped tools emit and nothing else — it is not a general OpenTelemetry exporter, and there is no option that turns it into one.
 
-If that is more than you mean to send, take the pipeline back: `init({ registerProvider: false })` and attach `fancy.spanProcessors()` to a provider you build (see [Bringing your own tracer provider](#bringing-your-own-tracer-provider)). The processors still export every span the provider they are attached to receives — but which provider that is, and which instrumentations feed it, becomes your decision rather than this SDK's.
+That matters because with `registerProvider` at its default `init()` owns the global tracer provider, so every span in the process reaches this SDK's processors: your own code's, and any other OpenTelemetry instrumentation's, carrying whatever that instrumentation puts on them — request URLs, SQL statements, exception messages and stack traces. None of it is exported. A span from a scope this SDK did not instrument is dropped before it reaches the export queue, and the first one from each scope is named in a one-time warning, so a span you expected to see is never silently missing.
+
+Keeping your own tracing is a pipeline of your own rather than a setting here. Build your own tracer provider for it, or take the global one back with `init({ registerProvider: false })` and hand `fancy.spanProcessors()` to the provider you build (see [Bringing your own tracer provider](#bringing-your-own-tracer-provider)). Even then these processors forward only the AI spans, so it is the other processors on that provider that export the rest.
 
 ### The size cap
 
@@ -265,7 +267,7 @@ Two subpaths sit beside it:
 
 ### Bringing your own tracer provider
 
-If your application owns its own OpenTelemetry tracer provider, tell `init()` not to build one. It still resolves your configuration and builds the span processors — stamping, plus batching and export — and `spanProcessors()` hands them over for your provider's constructor:
+If your application owns its own OpenTelemetry tracer provider, tell `init()` not to build one. It still resolves your configuration and builds the span processors — stamping, then the scope filter over batching and export — and `spanProcessors()` hands them over for your provider's constructor:
 
 ```ts
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
@@ -280,6 +282,8 @@ provider.register();
 ```
 
 The constructor is the only seam — an OpenTelemetry SDK 2.x provider accepts processors there and nowhere else — which is why `init()` runs first and your provider is built from what it returns. `register()` is yours to call, and it installs the context manager, so `registerContextManager` does nothing in this mode.
+
+Attaching them to a provider that also carries your own tracing is safe: they forward only the AI spans, and your own processors on that provider see every span as they did before.
 
 The processors are all you get: the resource is yours to set. `service.name`, `service.version`, `fancysauce.schema_version`, `fancysauce.sdk.version`, and the `init({ attribution })` copy live on the resource `init()` builds for its own provider, so none of them ship unless you put them on yours. Every span still carries the attribution itself, which the stamping processor writes.
 
@@ -344,6 +348,8 @@ The SDK is a thin, opinionated OpenTelemetry setup. Nothing here is a private pr
 The class patch loads its instrumentation package on demand, so it is asynchronous. A call made before it lands carries attribution but produces no span, which is why `instrument()` belongs in startup. `await fancy.instrument.ready()` turns that convention into a guarantee, for a test or a short script that cannot rely on startup ordering.
 
 **The stamping processor** copies the active attribution scope onto every span at start — `onStart`, on a live span, which is the contract-blessed place to set attributes. Stamping at start also puts attribution ahead of the 128-attribute cap that per-message instrumentation attributes can hit, so attribution is never what gets dropped. For the reserved identity attributes only, a value the instrumentation already set wins: an explicit conversation id on the span is more specific than the ambient one.
+
+**The scope filter** sits between the stamping processor and the export queue and forwards only the spans this SDK's own instrumentation created — the scope `ai` and the tracer `vercelTelemetry()` names, plus the scope of each `@traceloop/instrumentation-*` package as `instrument()` loads it, read off the instrumentation itself rather than written down. Everything else is dropped, once with a warning naming the scope. It wraps the batch processor rather than sitting beside it because processors on a provider are peers and a peer cannot veto another, so wrapping is what keeps a dropped span out of the queue rather than out of one processor.
 
 **The exporter** is OTLP/HTTP JSON to `${endpoint}/v1/traces`, gzipped, with bearer auth, behind a `BatchSpanProcessor` holding at most 512 spans and exporting at most 64 at a time. It retries `429`, `502`, `503`, and `504` with backoff and honors `Retry-After`. A decorator around it enforces the content policy — strip, redact, cap at 256 KB — and implements the `413` halving described above.
 
