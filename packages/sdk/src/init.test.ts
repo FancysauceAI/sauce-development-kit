@@ -214,4 +214,40 @@ describe("init", () => {
     await ready;
     expect(order).toEqual(["ready"]);
   });
+
+  it("awaits the new registry's pending patch after a shutdown()+init() cycle, not the old one", async () => {
+    let landFirst = (): void => undefined;
+    const firstPatched = new Promise<void>((resolve) => (landFirst = resolve));
+    let landSecond = (): void => undefined;
+    const secondPatched = new Promise<void>((resolve) => (landSecond = resolve));
+    const patches = [firstPatched, secondPatched];
+    sdk = createSdk({
+      exporterFactory: () => new InMemorySpanExporter(),
+      instrumentPatch: async () => {
+        await patches.shift();
+        return true;
+      },
+    });
+
+    sdk.init({ apiKey: "fs_test_x" });
+    sdk.instrument({ messages: { create: (): undefined => undefined } });
+    landFirst();
+    await sdk.instrument.ready();
+
+    // shutdown() drops the registry; the next instrument() call builds a new
+    // one with its own pending patch.
+    await sdk.shutdown();
+    sdk.init({ apiKey: "fs_test_x" });
+    sdk.instrument({ messages: { create: (): undefined => undefined } });
+
+    const order: string[] = [];
+    const ready = sdk.instrument.ready().then(() => order.push("ready"));
+    // If ready() still pointed at the old (already-settled) registry, this
+    // would resolve here instead of waiting on the new registry's patch.
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(order).toEqual([]);
+    landSecond();
+    await ready;
+    expect(order).toEqual(["ready"]);
+  });
 });
