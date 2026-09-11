@@ -14,8 +14,12 @@ jobs:
       packages: write
       pull-requests: write
     steps:
+      # No step here pushes with the checkout's token: changesets/action writes
+      # its own git credentials from the token it is handed below. Leaving the
+      # checkout token on disk would give every later step — and anything they
+      # run — a repository write credential nothing asks for.
       - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
+        with: { fetch-depth: 0, persist-credentials: false }
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
       - uses: actions/setup-node@v4
         with:
@@ -41,4 +45,8 @@ jobs:
           commit: "chore: release"
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          # `changeset publish` needs this: packages go to GitHub Packages (see
+          # `.npmrc`), and the `registry-url` above had setup-node write the
+          # `_authToken` line that reads it. The job's own token is the
+          # credential for that, which is what `packages: write` grants.
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
