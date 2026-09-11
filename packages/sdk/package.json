@@ -58,20 +58,26 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/context-async-hooks": "^2.11.0",
     "@opentelemetry/core": "^2.11.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.222.0",
     "@opentelemetry/otlp-exporter-base": "^0.222.0",
     "@opentelemetry/resources": "^2.11.0",
-    "@opentelemetry/sdk-trace-base": "^2.11.0",
     "@opentelemetry/sdk-trace-node": "^2.11.0"
   },
   "peerDependencies": {
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/sdk-trace-base": "^2.11.0",
     "@traceloop/instrumentation-anthropic": "^0.27.0",
     "@traceloop/instrumentation-openai": "^0.27.0"
   },
   "peerDependenciesMeta": {
+    "@opentelemetry/api": {
+      "optional": false
+    },
+    "@opentelemetry/sdk-trace-base": {
+      "optional": false
+    },
     "@traceloop/instrumentation-anthropic": {
       "optional": true
     },
@@ -81,8 +87,10 @@
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.125.0",
+    "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/instrumentation": "^0.203.0",
     "@opentelemetry/otlp-transformer": "^0.222.0",
+    "@opentelemetry/sdk-trace-base": "^2.11.0",
     "@traceloop/instrumentation-anthropic": "^0.27.0",
     "@traceloop/instrumentation-openai": "^0.27.0",
     "@types/node": "^22.0.0",

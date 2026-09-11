@@ -7,8 +7,10 @@ Your application calls OpenAI, Anthropic, or the Vercel AI SDK. This SDK records
 ## Install
 
 ```bash
-pnpm add @fancysauce/sdk openai @traceloop/instrumentation-openai
+pnpm add @fancysauce/sdk @opentelemetry/api @opentelemetry/sdk-trace-base openai @traceloop/instrumentation-openai
 ```
+
+`@opentelemetry/api` and `@opentelemetry/sdk-trace-base` are required peer dependencies: they are the types this package hands you — the tracer on `vercelTelemetry()`, the processors on `spanProcessors()` — and one copy of each has to be shared with the rest of your OpenTelemetry setup for those to be the same types. Install them yourself, and let your own resolution decide the version within the supported range.
 
 The SDK creates no spans on its own; the `@traceloop/instrumentation-*` package for each provider you use does. Install the one that matches your client:
 
@@ -351,15 +353,17 @@ The class patch loads its instrumentation package on demand, so it is asynchrono
 
 Status: early access.
 
-|                      |                       |
-| -------------------- | --------------------- |
-| Node.js              | ≥ 22.11 (required)    |
-| `openai`             | tested with `^7.15`   |
-| `@anthropic-ai/sdk`  | tested with `^0.125`  |
-| `ai` (Vercel AI SDK) | tested with 7 (types) |
-| Module formats       | ESM and CommonJS      |
+|                                 |                       |
+| ------------------------------- | --------------------- |
+| Node.js                         | ≥ 22.11 (required)    |
+| `@opentelemetry/api`            | `^1.9` (peer)         |
+| `@opentelemetry/sdk-trace-base` | `^2.11` (peer)        |
+| `openai`                        | tested with `^7.15`   |
+| `@anthropic-ai/sdk`             | tested with `^0.125`  |
+| `ai` (Vercel AI SDK)            | tested with 7 (types) |
+| Module formats                  | ESM and CommonJS      |
 
-The Node floor is a hard requirement. The client rows are the versions this repository's suite runs against, not a claim about the range that works: the `openai` and `@anthropic-ai/sdk` clients are driven end to end against a fake provider, while `ai` is imported for its types alone, so the telemetry option is checked at build time rather than called.
+The Node floor is a hard requirement, and so are the two peer ranges: OpenTelemetry SDK 2.x is what `spanProcessors()` builds against, and an install that resolves a 1.x provider fails at install time rather than at the first export. The client rows are the versions this repository's suite runs against, not a claim about the range that works: the `openai` and `@anthropic-ai/sdk` clients are driven end to end against a fake provider, while `ai` is imported for its types alone, so the telemetry option is checked at build time rather than called.
 
 Instrumented methods:
 
