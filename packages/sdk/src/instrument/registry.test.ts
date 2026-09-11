@@ -96,6 +96,19 @@ describe("InstrumentRegistry", () => {
     expect(calls[0].scope.attribution).toEqual({ customer: "acme" });
   });
 
+  it("strips the fancysauce option from every argument that carries one", async () => {
+    const { OpenAIish } = fakeOpenAI(ctx, calls);
+    const client = registry().instrument(new OpenAIish());
+    await client.chat.completions.create(
+      { model: "m", fancysauce: { customer: "acme" } },
+      { timeout: 5, fancysauce: { customer: "beta", feature: "chat" } },
+    );
+    expect(calls[0].body).toEqual({ model: "m" });
+    expect(calls[0].options).toEqual({ timeout: 5 });
+    // The body is the specific request, so it wins the key both name.
+    expect(calls[0].scope.attribution).toEqual({ customer: "acme", feature: "chat" });
+  });
+
   it("leaves the scope empty when nothing was attributed", async () => {
     const { OpenAIish } = fakeOpenAI(ctx, calls);
     const client = registry().instrument(new OpenAIish());
@@ -200,6 +213,48 @@ describe("InstrumentRegistry", () => {
     expect(client.chat.completions.create).toBe(wrapper);
     await client.chat.completions.create({ model: "m" });
     expect(calls[0].scope.attribution).toEqual({ customer: "b" });
+  });
+
+  it("repoints the wrapper at the context of the registry that instrumented it last", async () => {
+    // What a shutdown() and a second init() produce: a new context, a new
+    // registry, and the wrapper the first one installed still on the client.
+    // The fake reads the new context, which is the one the live processors and
+    // exporter are behind — a wrapper still opening its scope on the retired
+    // one leaves this call unattributed there.
+    const next = new AttributionContext({ mode: "auto" });
+    const { OpenAIish } = fakeOpenAI(next, calls);
+    const client = new OpenAIish();
+    registry().instrument(client, { attribution: { customer: "a" } });
+    new InstrumentRegistry(next, {
+      patch: patch as unknown as ClassPatch,
+      traceContent: true,
+    }).instrument(client, { attribution: { customer: "b" } });
+    await next.attribute({ product: "p" }, () => client.chat.completions.create({ model: "m" }));
+    expect(calls[0].scope.attribution).toEqual({ product: "p", customer: "b" });
+  });
+
+  it("re-wraps rather than writing into a tag another SDK copy left behind", async () => {
+    const { OpenAIish } = fakeOpenAI(ctx, calls);
+    const client = new OpenAIish();
+    const target = client.chat.completions as unknown as Record<string, unknown>;
+    const foreign = target.create as (...args: unknown[]) => unknown;
+    // A wrapper from a copy of the SDK that writes the shared symbol to a
+    // contract this one does not know. Its cell must come back untouched.
+    const cell = { version: 99, mystery: true };
+    Object.defineProperty(target, "create", {
+      configurable: true,
+      writable: true,
+      value: Object.assign(
+        function (this: unknown, ...args: unknown[]): unknown {
+          return foreign.apply(this, args);
+        },
+        { [Symbol.for("fancysauce.instrumented")]: cell },
+      ),
+    });
+    registry().instrument(client, { attribution: { customer: "acme" } });
+    await client.chat.completions.create({ model: "m" });
+    expect(calls[0].scope.attribution).toEqual({ customer: "acme" });
+    expect(cell).toEqual({ version: 99, mystery: true });
   });
 
   it("warns once and ignores a per-call fancysauce option that is not an object", async () => {

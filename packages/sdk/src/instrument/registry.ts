@@ -26,7 +26,7 @@ interface RegistryDeps {
 
 type Method = (...args: unknown[]) => unknown;
 
-type Wrapper = Method & { [INSTRUMENTED]?: InstrumentedTag };
+type Wrapper = Method & { [INSTRUMENTED]?: ForeignTag };
 
 const METHODS: Record<Provider, readonly string[]> = {
   openai: OPENAI_METHODS,
@@ -37,16 +37,34 @@ const METHODS: Record<Provider, readonly string[]> = {
 const OVERRIDE_KEY = "fancysauce";
 
 /**
- * Marks a method this SDK wrapped, and holds the options that wrapper reads.
+ * Marks a method this SDK wrapped, and holds what that wrapper reads.
  * Registered globally (Symbol.for) so two copies of the SDK in one dependency
  * tree recognize each other's wrappers instead of stacking on them.
  */
 const INSTRUMENTED = Symbol.for("fancysauce.instrumented");
 
-/** The mutable options cell a wrapper reads at call time. */
+/** Bump when the cell's fields change; an unrecognized cell is never written. */
+const TAG_VERSION = 1;
+
+/**
+ * The mutable cell a wrapper reads at call time. The context lives here rather
+ * than in the wrapper's closure because a shutdown() builds a new attribution
+ * context: a client instrumented again after one keeps its original wrapper,
+ * and only the cell can point that wrapper at the context the live exporter
+ * reads.
+ */
 interface InstrumentedTag {
+  version: typeof TAG_VERSION;
+  ctx: AttributionContext;
   options: InstrumentOptions;
 }
+
+/**
+ * The shape of the cell as found on a wrapper, which another copy of the SDK
+ * may have written to a different contract. Only `version` can be trusted
+ * before it has been checked.
+ */
+type ForeignTag = { version?: unknown };
 
 const SUPPORTED =
   "fancy.instrument(): unsupported client; supported: openai, anthropic " +
@@ -79,27 +97,35 @@ function ownerOf(target: object, key: string): object | null {
  * it, and it is always removed: the provider SDK would either reject the
  * unknown field or forward it to the vendor.
  *
+ * Every argument is swept, not just the first one carrying the key, so a call
+ * that writes it on both the body and the request options leaves neither
+ * behind. Where both name the same attribution key the earlier argument wins,
+ * matching the provider SDKs' own precedence: the body is the specific request
+ * and the request options are the envelope around it.
+ *
  * A value that is not a bag — a string, an array — is dropped with a warning
  * rather than normalized, because normalizing it would attribute the call to
  * keys the caller never wrote.
  */
 function takeOverride(args: unknown[]): { override: BagInput; forwarded: unknown[] } {
+  let override: BagInput | undefined;
+  let forwarded: unknown[] | undefined;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === null || typeof arg !== "object") continue;
     if (!Object.prototype.hasOwnProperty.call(arg, OVERRIDE_KEY)) continue;
-    const { [OVERRIDE_KEY]: override, ...rest } = arg as Record<string, unknown>;
-    const forwarded = args.slice();
+    const { [OVERRIDE_KEY]: value, ...rest } = arg as Record<string, unknown>;
+    forwarded ??= args.slice();
     forwarded[i] = rest;
     // null and undefined are how a caller opts out of an override they built
     // conditionally, so only a wrong *kind* of value is worth a warning.
-    if (override != null && (typeof override !== "object" || Array.isArray(override))) {
+    if (value != null && (typeof value !== "object" || Array.isArray(value))) {
       warnOnce("instrument:override", "the per-call fancysauce option must be an object");
-      return { override: {}, forwarded };
+      continue;
     }
-    return { override: (override ?? {}) as BagInput, forwarded };
+    override = { ...(value as BagInput | undefined), ...override };
   }
-  return { override: {}, forwarded: args };
+  return { override: override ?? {}, forwarded: forwarded ?? args };
 }
 
 /**
@@ -184,15 +210,19 @@ export class InstrumentRegistry {
       client,
     ) as Record<string, unknown> | undefined;
     if (!target || typeof target[method] !== "function") return;
-    // A second instrument() on the same client replaces the options its
-    // wrapper reads. Wrapping again would open one attribution scope per
-    // instrument() call, and the outer ones would keep applying options the
-    // caller has already replaced.
+    // A second instrument() on the same client repoints its wrapper at this
+    // registry's context and options. Wrapping again would open one attribution
+    // scope per instrument() call, and the outer ones would keep applying
+    // options the caller has already replaced. A cell written to a contract
+    // this copy of the SDK does not know falls through to a fresh wrap, because
+    // writing fields into it would corrupt the other copy's wrapper.
     const existing = Object.prototype.hasOwnProperty.call(target, method)
       ? (target[method] as Wrapper)[INSTRUMENTED]
       : undefined;
-    if (existing) {
-      existing.options = opts;
+    if (existing?.version === TAG_VERSION) {
+      const tag = existing as InstrumentedTag;
+      tag.ctx = this.ctx;
+      tag.options = opts;
       return;
     }
     const captured = target[method] as Method;
@@ -210,12 +240,11 @@ export class InstrumentRegistry {
             return typeof current === "function" ? (current as Method) : captured;
           }
         : () => captured;
-    const ctx = this.ctx;
-    const tag: InstrumentedTag = { options: opts };
+    const tag: InstrumentedTag = { version: TAG_VERSION, ctx: this.ctx, options: opts };
     const wrapper: Wrapper = Object.assign(
       function (this: unknown, ...args: unknown[]): unknown {
         const { override, forwarded } = takeOverride(args);
-        return ctx.attribute({ ...tag.options.attribution, ...override }, () =>
+        return tag.ctx.attribute({ ...tag.options.attribution, ...override }, () =>
           resolve().apply(this ?? target, forwarded),
         );
       },
