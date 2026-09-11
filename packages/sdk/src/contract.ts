@@ -30,7 +30,7 @@ export const CONTENT_ATTRIBUTES = [
 
 // Reserved bag keys are mapped to standard attributes and never emitted as
 // fancysauce.attribution.* — the server refuses them as category keys.
-const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+export const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 export const RESERVED_KEYS = {
   member: {
     toAttributes: (v: string): Record<string, string> =>

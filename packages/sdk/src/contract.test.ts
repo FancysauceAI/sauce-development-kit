@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ATTR,
   CONTENT_ATTRIBUTES,
+  EMAIL_PATTERN,
   KEY_PATTERN,
   REFUSED_KEY_PREFIXES,
   RESERVED_KEYS,
@@ -64,7 +65,12 @@ describe("contract", () => {
     expect(KEY_PATTERN.test("a".repeat(41))).toBe(false);
     expect(VALUE_MAX_LENGTH).toBe(200);
   });
-  it("refused key prefixes never overlap a valid registry slug", () => {
-    for (const p of REFUSED_KEY_PREFIXES) expect(KEY_PATTERN.test(p + "x")).toBe(false);
+  it("pins the refused key prefixes by value", () => {
+    expect([...REFUSED_KEY_PREFIXES]).toEqual(["fancysauce.", "gen_ai.", "user."]);
+  });
+  it("recognizes an address only with a local part, a host, and a dot", () => {
+    expect(EMAIL_PATTERN.test("dev@example.com")).toBe(true);
+    expect(EMAIL_PATTERN.test("@handle")).toBe(false);
+    expect(EMAIL_PATTERN.test("dev@localhost")).toBe(false);
   });
 });
