@@ -25,6 +25,7 @@ import {
   type InstrumentOptions,
 } from "./instrument/registry.js";
 import { StampingProcessor } from "./processors/stamping-processor.js";
+import { SDK_VERSION } from "./version.js";
 import { buildVercelTelemetry, type VercelTelemetry } from "./vercel-telemetry.js";
 
 export interface SdkInternals {
@@ -150,7 +151,7 @@ export function createSdk(internals: SdkInternals = {}) {
       ...(resolved.name ? { "service.name": resolved.name } : {}),
       ...(resolved.version ? { "service.version": resolved.version } : {}),
       [ATTR.schemaVersion]: SCHEMA_VERSION,
-      [ATTR.sdkVersion]: __SDK_VERSION__,
+      [ATTR.sdkVersion]: SDK_VERSION,
       ...Object.fromEntries(
         Object.entries(defaults.attribution).map(([k, v]) => [ATTR.attributionPrefix + k, v]),
       ),
