@@ -2,14 +2,20 @@
   "name": "sauce-development-kit",
   "private": true,
   "version": "0.0.0",
+  "description": "Fancysauce SDK for TypeScript — attribute AI usage and cost to your customers",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/FancysauceAI/sauce-development-kit"
+  },
   "packageManager": "pnpm@10.15.0",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.11"
   },
   "scripts": {
-    "build": "pnpm -r --filter ./packages/* build",
-    "test": "pnpm -r --filter ./packages/* test",
-    "typecheck": "pnpm -r --filter ./packages/* typecheck",
+    "build": "pnpm -r --filter \"./packages/*\" build",
+    "test": "pnpm -r --filter \"./packages/*\" test",
+    "typecheck": "pnpm -r --filter \"./packages/*\" --filter \"./examples/*\" --if-present typecheck",
     "lint": "eslint . --no-error-on-unmatched-pattern",
     "format": "prettier --check .",
     "format:fix": "prettier --write .",

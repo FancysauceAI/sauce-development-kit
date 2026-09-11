@@ -3,3 +3,7 @@ dist/
 *.tgz
 .DS_Store
 coverage/
+.env
+.env.*
+.vscode/
+.idea/
