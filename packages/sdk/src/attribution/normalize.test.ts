@@ -29,10 +29,22 @@ describe("normalizeBag", () => {
     expect(r.attribution).toEqual({ b: "x".repeat(200) });
     expect(r.dropped).toEqual([{ key: "a", rawKey: "a", reason: "empty-value" }]);
   });
+  it("drops underscored keys, which the category registry does not accept", () => {
+    const r = normalizeBag({ cost_center: "x", "cost-center": "y" });
+    expect(r.attribution).toEqual({ "cost-center": "y" });
+    expect(r.dropped).toEqual([
+      { key: "cost_center", rawKey: "cost_center", reason: "invalid-key" },
+    ]);
+  });
   it("reports a key the prototype would otherwise swallow", () => {
     const r = normalizeBag(JSON.parse('{"__proto__":"x","customer":"acme"}') as BagInput);
-    expect(Object.keys(r.attribution).sort()).toEqual(["__proto__", "customer"]);
-    expect(r.attribution["__proto__"]).toBe("x");
+    expect(r.attribution).toEqual({ customer: "acme" });
+    expect(Object.getPrototypeOf(r.attribution)).toBe(null);
+    expect(r.dropped).toEqual([{ key: "__proto__", rawKey: "__proto__", reason: "invalid-key" }]);
+  });
+  it("keeps an inherited member name as the caller's own data", () => {
+    const r = normalizeBag({ constructor: "acme" });
+    expect(r.attribution["constructor"]).toBe("acme");
     expect(r.dropped).toEqual([]);
   });
   it("drops values that are not primitives", () => {

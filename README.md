@@ -169,13 +169,13 @@ Reserved keys are lifted only out of the attribution bag. In a `metadata` bag th
 
 ### Key and value rules
 
-Keys are normalized before anything else: trimmed, lowercased, and then required to match `[a-z0-9_-]{1,40}`. So `{ Customer: "…" }` and `{ customer: "…" }` are the same key.
+Keys are normalized before anything else: trimmed, lowercased, and then required to match `[a-z0-9-]{1,40}` — lowercase letters, digits, and hyphens only. So `{ Customer: "…" }` and `{ customer: "…" }` are the same key, and `cost_center` is not a key at all: write `cost-center`.
 
 Values may be a string, number, bigint, or boolean. Strings are trimmed; everything is stringified and then cut to 200 characters.
 
 A key is dropped, with a one-time warning naming it, when:
 
-- the normalized key does not match the pattern (spaces, dots, non-ASCII, over 40 characters);
+- the normalized key does not match the pattern (spaces, dots, underscores, non-ASCII, over 40 characters);
 - the key starts with `fancysauce.`, `gen_ai.`, or `user.` — those namespaces belong to the wire contract and cannot be written from a bag;
 - the value is empty, `null`, `undefined`, `NaN`, `Infinity`, or a type that is not one of the four above;
 - two keys normalize to the same key in one bag;

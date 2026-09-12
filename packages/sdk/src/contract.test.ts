@@ -65,7 +65,8 @@ describe("contract", () => {
   });
   it("key pattern is the registry slug rule", () => {
     expect(KEY_PATTERN.test("customer")).toBe(true);
-    expect(KEY_PATTERN.test("cost-center_2")).toBe(true);
+    expect(KEY_PATTERN.test("cost-center-2")).toBe(true);
+    expect(KEY_PATTERN.test("cost_center")).toBe(false);
     expect(KEY_PATTERN.test("Customer")).toBe(false);
     expect(KEY_PATTERN.test("a".repeat(41))).toBe(false);
     expect(VALUE_MAX_LENGTH).toBe(200);

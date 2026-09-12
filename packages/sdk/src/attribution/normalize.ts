@@ -81,8 +81,10 @@ function toValue(raw: unknown): string | null {
 // (metadata). Every rejected key is reported with its reason — silence here is
 // what turns a typo into a month of missing attribution.
 function normalize(input: BagInput, mapReserved: boolean): Normalized {
-  // Prototype-less so a key like `__proto__` is stored and reported as data
-  // rather than mutating the accumulator.
+  // Prototype-less so a key that names something on `Object.prototype` is
+  // written and read as plain data. The key grammar already refuses
+  // `__proto__`, but it admits `constructor`, and a hit on an inherited
+  // member would be read as a caller's value.
   const out: Normalized = {
     kept: Object.create(null) as Record<string, string>,
     reserved: Object.create(null) as ReservedBag,
