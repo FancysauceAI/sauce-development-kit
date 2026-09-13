@@ -57,9 +57,9 @@ export const RESERVED_KEYS = {
 export type ReservedKey = keyof typeof RESERVED_KEYS;
 
 // Category keys are registry slugs: lowercase, 1–40 chars of [a-z0-9-].
-// The underscore is deliberately excluded — a slug that the platform's
-// category registry would reject is better dropped here, named in a warning,
-// than silently accepted and lost on the way in.
+// The underscore is excluded from the wire grammar itself — the normalizer
+// maps `_` to `-` before validating against this pattern, so a key is only
+// dropped here when it is still not a registry slug afterward.
 export const KEY_PATTERN = /^[a-z0-9-]{1,40}$/;
 
 // These prefixes match complete attribute names a caller might try to smuggle

@@ -29,18 +29,39 @@ describe("normalizeBag", () => {
     expect(r.attribution).toEqual({ b: "x".repeat(200) });
     expect(r.dropped).toEqual([{ key: "a", rawKey: "a", reason: "empty-value" }]);
   });
-  it("drops underscored keys, which the category registry does not accept", () => {
-    const r = normalizeBag({ cost_center: "x", "cost-center": "y" });
-    expect(r.attribution).toEqual({ "cost-center": "y" });
+  it("normalizes underscores to hyphens, same as lowercasing", () => {
+    const r = normalizeBag({ Cost_Center: "x" });
+    expect(r.attribution).toEqual({ "cost-center": "x" });
+    expect(r.dropped).toEqual([]);
+  });
+  it("normalizes a key that is underscore-normalized into a duplicate", () => {
+    const r = normalizeBag({ cost_center: "first", "cost-center": "second" });
+    expect(r.attribution).toEqual({ "cost-center": "first" });
     expect(r.dropped).toEqual([
-      { key: "cost_center", rawKey: "cost_center", reason: "invalid-key" },
+      { key: "cost-center", rawKey: "cost-center", reason: "duplicate-key" },
     ]);
   });
-  it("reports a key the prototype would otherwise swallow", () => {
+  it("normalizes runs of underscores to runs of hyphens", () => {
+    const r = normalizeBag({ a__b: "x" });
+    expect(r.attribution).toEqual({ "a--b": "x" });
+    expect(r.dropped).toEqual([]);
+  });
+  it("still drops a key that is invalid after underscore normalization: underscore-only over the length cap, and a plain over-length key", () => {
+    const underscoreOnly = "_".repeat(41);
+    const overLength = "a".repeat(41);
+    const r = normalizeBag({ [underscoreOnly]: "x", [overLength]: "y" });
+    expect(r.attribution).toEqual({});
+    expect(r.dropped).toEqual([
+      { key: "-".repeat(41), rawKey: underscoreOnly, reason: "invalid-key" },
+      { key: overLength, rawKey: overLength, reason: "invalid-key" },
+    ]);
+  });
+  it("normalizes __proto__ into a valid key kept as caller data", () => {
     const r = normalizeBag(JSON.parse('{"__proto__":"x","customer":"acme"}') as BagInput);
-    expect(r.attribution).toEqual({ customer: "acme" });
     expect(Object.getPrototypeOf(r.attribution)).toBe(null);
-    expect(r.dropped).toEqual([{ key: "__proto__", rawKey: "__proto__", reason: "invalid-key" }]);
+    expect(r.attribution["--proto--"]).toBe("x");
+    expect(r.attribution["customer"]).toBe("acme");
+    expect(r.dropped).toEqual([]);
   });
   it("keeps an inherited member name as the caller's own data", () => {
     const r = normalizeBag({ constructor: "acme" });
@@ -64,6 +85,11 @@ describe("normalizeBag", () => {
         { key: "customer", rawKey: "customer", reason: "invalid-value" },
       ]);
     }
+  });
+  it("still recognizes reserved keys after normalization, which contain no underscores to map", () => {
+    const r = normalizeBag({ Member: "Dev@Example.com", Conversation: "conv_1" });
+    expect(r.attribution).toEqual({});
+    expect(r.reserved).toEqual({ member: "Dev@Example.com", conversation: "conv_1" });
   });
   it("keeps reserved keys out of the attribution bag, as the caller wrote them", () => {
     const r = normalizeBag({

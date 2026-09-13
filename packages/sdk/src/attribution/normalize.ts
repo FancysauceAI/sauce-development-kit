@@ -82,9 +82,10 @@ function toValue(raw: unknown): string | null {
 // what turns a typo into a month of missing attribution.
 function normalize(input: BagInput, mapReserved: boolean): Normalized {
   // Prototype-less so a key that names something on `Object.prototype` is
-  // written and read as plain data. The key grammar already refuses
-  // `__proto__`, but it admits `constructor`, and a hit on an inherited
-  // member would be read as a caller's value.
+  // written and read as plain data. `__proto__` normalizes to `--proto--`,
+  // a plain string key that never reaches the special own-property slot;
+  // the grammar admits `constructor`, and a hit on an inherited member
+  // would be read as a caller's value.
   const out: Normalized = {
     kept: Object.create(null) as Record<string, string>,
     reserved: Object.create(null) as ReservedBag,
@@ -92,13 +93,21 @@ function normalize(input: BagInput, mapReserved: boolean): Normalized {
   };
   const seen = new Set<string>();
   for (const [rawKey, rawValue] of Object.entries(input)) {
-    const key = rawKey.trim().toLowerCase();
-    const drop = (reason: DropReason): void => void out.dropped.push({ key, rawKey, reason });
-
-    if (REFUSED_KEY_PREFIXES.some((p) => key.startsWith(p))) {
-      drop("refused-prefix");
+    const lowered = rawKey.trim().toLowerCase();
+    // Refused prefixes (`gen_ai.` among them) are matched against the merely
+    // lowercased key, before underscores become hyphens: those namespaces are
+    // complete attribute names smuggled in, not registry slugs, and hyphenating
+    // first would let `gen_ai.system` slip past as `gen-ai.system`.
+    if (REFUSED_KEY_PREFIXES.some((p) => lowered.startsWith(p))) {
+      out.dropped.push({ key: lowered, rawKey, reason: "refused-prefix" });
       continue;
     }
+    // Underscores are normalized to hyphens alongside lowercasing, not
+    // reported separately: a registry slug has no other use for `_`, so
+    // `cost_center` and `cost-center` are the same key to a caller.
+    const key = lowered.replace(/_/g, "-");
+    const drop = (reason: DropReason): void => void out.dropped.push({ key, rawKey, reason });
+
     if (!KEY_PATTERN.test(key)) {
       drop("invalid-key");
       continue;
