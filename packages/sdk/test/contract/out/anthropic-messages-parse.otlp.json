@@ -1,0 +1,214 @@
+{
+  "resourceSpans": [
+    {
+      "resource": {
+        "attributes": [
+          {
+            "key": "service.name",
+            "value": {
+              "stringValue": "contract-app"
+            }
+          },
+          {
+            "key": "service.version",
+            "value": {
+              "stringValue": "0.0.1"
+            }
+          },
+          {
+            "key": "fancysauce.schema_version",
+            "value": {
+              "stringValue": "1.0.0"
+            }
+          },
+          {
+            "key": "fancysauce.sdk.version",
+            "value": {
+              "stringValue": "0.0.0"
+            }
+          },
+          {
+            "key": "fancysauce.attribution.environment",
+            "value": {
+              "stringValue": "test"
+            }
+          }
+        ],
+        "droppedAttributesCount": 0
+      },
+      "scopeSpans": [
+        {
+          "scope": {
+            "name": "@traceloop/instrumentation-anthropic",
+            "version": "0.27.0"
+          },
+          "spans": [
+            {
+              "traceId": "cead1f560afb347bacce5ed1f60b38a0",
+              "spanId": "9c482d61f9974b70",
+              "name": "chat claude-sonnet-5",
+              "kind": 3,
+              "startTimeUnixNano": "1789349419267000000",
+              "endTimeUnixNano": "1789349419271428875",
+              "attributes": [
+                {
+                  "key": "gen_ai.provider.name",
+                  "value": {
+                    "stringValue": "anthropic"
+                  }
+                },
+                {
+                  "key": "gen_ai.operation.name",
+                  "value": {
+                    "stringValue": "chat"
+                  }
+                },
+                {
+                  "key": "gen_ai.request.model",
+                  "value": {
+                    "stringValue": "claude-sonnet-5"
+                  }
+                },
+                {
+                  "key": "gen_ai.request.max_tokens",
+                  "value": {
+                    "intValue": 100
+                  }
+                },
+                {
+                  "key": "gen_ai.system_instructions",
+                  "value": {
+                    "stringValue": "[{\"type\":\"text\",\"content\":\"You are support.\"}]"
+                  }
+                },
+                {
+                  "key": "gen_ai.input.messages",
+                  "value": {
+                    "stringValue": "[{\"role\":\"user\",\"parts\":[{\"type\":\"text\",\"content\":\"Refund invoice 4412\"}]}]"
+                  }
+                },
+                {
+                  "key": "fancysauce.attribution.environment",
+                  "value": {
+                    "stringValue": "test"
+                  }
+                },
+                {
+                  "key": "fancysauce.attribution.customer",
+                  "value": {
+                    "stringValue": "acme-42"
+                  }
+                },
+                {
+                  "key": "fancysauce.attribution.product",
+                  "value": {
+                    "stringValue": "invoice-ops"
+                  }
+                },
+                {
+                  "key": "fancysauce.attribution.feature",
+                  "value": {
+                    "stringValue": "refund-handling"
+                  }
+                },
+                {
+                  "key": "fancysauce.metadata.ticket",
+                  "value": {
+                    "stringValue": "ZD-88213"
+                  }
+                },
+                {
+                  "key": "gen_ai.conversation.id",
+                  "value": {
+                    "stringValue": "conv_8f31a2"
+                  }
+                },
+                {
+                  "key": "session.id",
+                  "value": {
+                    "stringValue": "conv_8f31a2"
+                  }
+                },
+                {
+                  "key": "user.email",
+                  "value": {
+                    "stringValue": "j.park@example.com"
+                  }
+                },
+                {
+                  "key": "gen_ai.response.model",
+                  "value": {
+                    "stringValue": "claude-sonnet-5"
+                  }
+                },
+                {
+                  "key": "gen_ai.response.finish_reasons",
+                  "value": {
+                    "arrayValue": {
+                      "values": [
+                        {
+                          "stringValue": "stop"
+                        }
+                      ]
+                    }
+                  }
+                },
+                {
+                  "key": "gen_ai.usage.total_tokens",
+                  "value": {
+                    "intValue": 2218
+                  }
+                },
+                {
+                  "key": "gen_ai.usage.output_tokens",
+                  "value": {
+                    "intValue": 376
+                  }
+                },
+                {
+                  "key": "gen_ai.usage.input_tokens",
+                  "value": {
+                    "intValue": 1842
+                  }
+                },
+                {
+                  "key": "gen_ai.usage.cache_creation.input_tokens",
+                  "value": {
+                    "intValue": 512
+                  }
+                },
+                {
+                  "key": "gen_ai.usage.cache_read.input_tokens",
+                  "value": {
+                    "intValue": 12488
+                  }
+                },
+                {
+                  "key": "gen_ai.output.messages",
+                  "value": {
+                    "stringValue": "[{\"role\":\"assistant\",\"finish_reason\":\"stop\",\"parts\":[{\"type\":\"text\",\"content\":\"{\\\"invoice_id\\\":\\\"INV-4412\\\",\\\"amount_cents\\\":128900,\\\"currency\\\":\\\"USD\\\"}\"}]}]"
+                  }
+                },
+                {
+                  "key": "fancysauce.content.bytes",
+                  "value": {
+                    "intValue": 279
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0,
+              "events": [],
+              "droppedEventsCount": 0,
+              "status": {
+                "code": 0
+              },
+              "links": [],
+              "droppedLinksCount": 0,
+              "flags": 257
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

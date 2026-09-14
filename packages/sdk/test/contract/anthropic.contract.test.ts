@@ -7,9 +7,11 @@
  */
 import { join } from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
+import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { z } from "zod";
 import { fancy } from "../../src/index.js";
-import { startFakeAnthropic } from "./fake-anthropic.js";
+import { ANTHROPIC_STRUCTURED_OUTPUT, startFakeAnthropic } from "./fake-anthropic.js";
 import { attr, contentBytes, startReceiver, type OtlpExportRequest } from "./otlp-receiver.js";
 import { recordOrCompare } from "./recording.js";
 
@@ -150,5 +152,138 @@ describe("Anthropic end to end", () => {
     expect(attr(a, "fancysauce.content.bytes")).toEqual({ intValue: contentBytes(a) });
 
     recordOrCompare(join(OUT, "anthropic-messages.otlp.json"), req.body);
+  });
+
+  /**
+   * `messages.parse()` is not in ANTHROPIC_METHODS and OpenLLMetry does not
+   * patch it, yet a call through it is covered today — because the generated
+   * client writes `parse()` as `this.create(params, options).then(…)`, so the
+   * call passes through the instance wrapper this SDK installs on `create` and
+   * then through the patched prototype. That is how one release of the vendor
+   * SDK happens to be generated, not a contract it offers. A release that had
+   * `parse()` post to the transport itself would take the span and the
+   * attribution with it, without an error anywhere, for every caller that asks
+   * for structured output. This case is the alarm for that.
+   */
+  it("ships one span for messages.parse, with the structured output intact", async () => {
+    // The receiver and the fake provider are shared by the whole suite, so
+    // what this case owns is the tail of each, not the whole array.
+    const exportsBefore = receiver.received.length;
+    const callsBefore = provider.requests.length;
+
+    const anthropic = fancy.instrument(
+      new Anthropic({ apiKey: "sk-ant-test", baseURL: provider.baseURL }),
+      { attribution: { product: "invoice-ops" } },
+    );
+    await fancy.instrument.ready();
+
+    const InvoiceFields = z.object({
+      invoice_id: z.string(),
+      amount_cents: z.number().int(),
+      currency: z.string(),
+    });
+
+    // Held in a variable rather than written inline for two reasons: the
+    // per-call override is not in the vendor's parameter type, and `parse()`
+    // infers the parsed type from the params it is given — the cast the
+    // create() case uses would erase it and leave `parsed_output` as null.
+    const params = {
+      model: "claude-sonnet-5",
+      max_tokens: 100,
+      system: "You are support.",
+      messages: [{ role: "user" as const, content: "Refund invoice 4412" }],
+      output_config: { format: zodOutputFormat(InvoiceFields) },
+      fancysauce: { feature: "refund-handling" },
+    };
+
+    const message = await fancy.attribute(
+      { customer: "acme-42", conversation: "conv_8f31a2", member: "j.park@example.com" },
+      { metadata: { ticket: "ZD-88213" } },
+      () => anthropic.messages.parse(params),
+    );
+    await fancy.forceFlush();
+
+    // The round trip: the JSON the server answered with, read back through the
+    // schema and handed to the caller as an object. Reading a field off it is
+    // also the type assertion — the field only exists on `parsed_output` when
+    // the format's type reached it.
+    expect(message.parsed_output).toEqual(ANTHROPIC_STRUCTURED_OUTPUT);
+    expect(message.parsed_output?.currency).toBe("USD");
+
+    expect(provider.requests).toHaveLength(callsBefore + 1);
+    const { output_config: format, ...sent } = provider.requests[callsBefore] as {
+      output_config?: { format?: { type?: string; schema?: { properties?: object } } };
+    };
+    // toEqual rather than toMatchObject: the per-call override is lifted out
+    // of the body on this path too, and a `fancysauce` key left behind — which
+    // is what an unwrapped parse() would leave — fails an exact match.
+    expect(sent).toEqual({
+      model: "claude-sonnet-5",
+      max_tokens: 100,
+      system: "You are support.",
+      messages: [{ role: "user", content: "Refund invoice 4412" }],
+    });
+    // The format crosses the wire as JSON schema; the `parse` function the
+    // helper attaches to it is local to the client and cannot. Asserted by
+    // shape and not by value, because the schema JSON itself is the emitter's
+    // business and not this contract's.
+    expect(format?.format?.type).toBe("json_schema");
+    expect(Object.keys(format?.format?.schema?.properties ?? {})).toEqual([
+      "invoice_id",
+      "amount_cents",
+      "currency",
+    ]);
+    expect(format?.format).not.toHaveProperty("parse");
+
+    expect(receiver.received).toHaveLength(exportsBefore + 1);
+    const req = receiver.received[exportsBefore];
+    const body = req.body as OtlpExportRequest;
+    const rs = body.resourceSpans[0];
+    expect(rs.scopeSpans).toHaveLength(1);
+    const scope = rs.scopeSpans[0];
+    expect(scope.scope.name).toContain("instrumentation-anthropic");
+    // The whole point of the case: one span. Zero is the regression it guards
+    // against; two would mean parse() and the create() under it each produced
+    // one and the call is being billed twice.
+    expect(scope.spans).toHaveLength(1);
+    const a = scope.spans[0].attributes;
+
+    // Identical to the create() case: a structured-output call is the same
+    // call to the ingest, and nothing about the model, the usage, or the cache
+    // tiers may change shape because the caller asked for a schema.
+    expect(attr(a, "gen_ai.provider.name")).toEqual({ stringValue: "anthropic" });
+    expect(attr(a, "gen_ai.operation.name")).toEqual({ stringValue: "chat" });
+    expect(attr(a, "gen_ai.request.model")).toEqual({ stringValue: "claude-sonnet-5" });
+    expect(attr(a, "gen_ai.request.max_tokens")).toEqual({ intValue: 100 });
+    expect(attr(a, "gen_ai.response.model")).toEqual({ stringValue: "claude-sonnet-5" });
+    expect(attr(a, "gen_ai.usage.input_tokens")).toEqual({ intValue: 1842 });
+    expect(attr(a, "gen_ai.usage.output_tokens")).toEqual({ intValue: 376 });
+    expect(attr(a, "gen_ai.usage.total_tokens")).toEqual({ intValue: 2218 });
+    expect(attr(a, "gen_ai.usage.cache_read.input_tokens")).toEqual({ intValue: 12488 });
+    expect(attr(a, "gen_ai.usage.cache_creation.input_tokens")).toEqual({ intValue: 512 });
+
+    expect(attr(a, "fancysauce.attribution.environment")).toEqual({ stringValue: "test" });
+    expect(attr(a, "fancysauce.attribution.customer")).toEqual({ stringValue: "acme-42" });
+    expect(attr(a, "fancysauce.attribution.product")).toEqual({ stringValue: "invoice-ops" });
+    expect(attr(a, "fancysauce.attribution.feature")).toEqual({ stringValue: "refund-handling" });
+    expect(attr(a, "fancysauce.metadata.ticket")).toEqual({ stringValue: "ZD-88213" });
+    expect(attr(a, "gen_ai.conversation.id")).toEqual({ stringValue: "conv_8f31a2" });
+    expect(attr(a, "session.id")).toEqual({ stringValue: "conv_8f31a2" });
+    expect(attr(a, "user.email")).toEqual({ stringValue: "j.park@example.com" });
+
+    // The answer is JSON, and it rides in the same content attribute prose
+    // would — the content policy has one thing to strip either way.
+    expect(attr(a, "gen_ai.output.messages")).toEqual({
+      stringValue: JSON.stringify([
+        {
+          role: "assistant",
+          finish_reason: "stop",
+          parts: [{ type: "text", content: JSON.stringify(ANTHROPIC_STRUCTURED_OUTPUT) }],
+        },
+      ]),
+    });
+    expect(attr(a, "fancysauce.content.bytes")).toEqual({ intValue: contentBytes(a) });
+
+    recordOrCompare(join(OUT, "anthropic-messages-parse.otlp.json"), req.body);
   });
 });
