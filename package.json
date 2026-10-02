@@ -21,12 +21,13 @@
     "format:fix": "prettier --write .",
     "check:internal-refs": "node scripts/check-internal-refs.mjs",
     "changeset": "changeset",
-    "release": "pnpm build && changeset publish"
+    "release": "pnpm build && pnpm test && changeset publish"
   },
   "devDependencies": {
     "@changesets/cli": "^3.0.2",
     "@eslint/js": "^10.0.1",
     "eslint": "^10.2.0",
+    "globals": "^17.12.0",
     "prettier": "^3.6.0",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.46.0"

@@ -1,0 +1,19 @@
+{
+  "name": "examples-node-openai",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx index.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@fancysauce/sdk": "workspace:*",
+    "@traceloop/instrumentation-openai": "^0.27.0",
+    "openai": "^7.15.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.3"
+  }
+}

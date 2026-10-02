@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    // The example is checked — by `tsc` and by typed linting — before the SDK
+    // has been built, so it is pointed at the SDK's sources rather than at the
+    // `dist/` type declarations that do not exist yet. An application outside
+    // this repository needs none of this: it resolves `@fancysauce/sdk`
+    // through the published package's own `exports`.
+    "paths": { "@fancysauce/sdk": ["../../packages/sdk/src/index.ts"] }
+  },
+  // globals.d.ts declares the version constant the build substitutes. It is an
+  // ambient declaration no module imports, so mapping the SDK to source means
+  // naming it here or the SDK's own sources do not compile in this program.
+  "include": ["index.ts", "../../packages/sdk/src/globals.d.ts"]
+}

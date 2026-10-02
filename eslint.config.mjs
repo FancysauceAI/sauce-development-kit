@@ -1,4 +1,5 @@
 import eslint from "@eslint/js";
+import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
@@ -7,7 +8,7 @@ export default tseslint.config(
   {
     languageOptions: {
       parserOptions: {
-        projectService: { allowDefaultProject: ["scripts/*.mjs"] },
+        projectService: { allowDefaultProject: ["scripts/*.mjs", "packages/*/*.config.ts"] },
         tsconfigRootDir: import.meta.dirname,
       },
     },
@@ -18,6 +19,14 @@ export default tseslint.config(
       ],
       "@typescript-eslint/no-floating-promises": "error",
       "@typescript-eslint/no-explicit-any": "warn",
+    },
+  },
+  {
+    files: ["scripts/*.mjs", "packages/*/*.config.ts"],
+    ...tseslint.configs.disableTypeChecked,
+    languageOptions: {
+      ...tseslint.configs.disableTypeChecked.languageOptions,
+      globals: { ...globals.nodeBuiltin },
     },
   },
   { ignores: ["**/dist/", "**/node_modules/", "eslint.config.mjs"] },

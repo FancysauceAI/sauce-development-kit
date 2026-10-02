@@ -1,0 +1,103 @@
+{
+  "name": "@fancysauce/sdk",
+  "version": "0.0.0",
+  "description": "Attribute AI usage and cost to customers, products, and features — OpenTelemetry-native.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/FancysauceAI/sauce-development-kit",
+    "directory": "packages/sdk"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22.11"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "main": "./dist/index.cjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./contract": {
+      "import": {
+        "types": "./dist/contract.d.ts",
+        "default": "./dist/contract.js"
+      },
+      "require": {
+        "types": "./dist/contract.d.cts",
+        "default": "./dist/contract.cjs"
+      }
+    },
+    "./vercel": {
+      "import": {
+        "types": "./dist/vercel.d.ts",
+        "default": "./dist/vercel.js"
+      },
+      "require": {
+        "types": "./dist/vercel.d.cts",
+        "default": "./dist/vercel.cjs"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@opentelemetry/context-async-hooks": "^2.11.0",
+    "@opentelemetry/core": "^2.11.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.222.0",
+    "@opentelemetry/otlp-exporter-base": "^0.222.0",
+    "@opentelemetry/resources": "^2.11.0",
+    "@opentelemetry/sdk-trace-node": "^2.11.0"
+  },
+  "peerDependencies": {
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/sdk-trace-base": "^2.11.0",
+    "@traceloop/instrumentation-anthropic": "^0.27.0",
+    "@traceloop/instrumentation-openai": "^0.27.0"
+  },
+  "peerDependenciesMeta": {
+    "@opentelemetry/api": {
+      "optional": false
+    },
+    "@opentelemetry/sdk-trace-base": {
+      "optional": false
+    },
+    "@traceloop/instrumentation-anthropic": {
+      "optional": true
+    },
+    "@traceloop/instrumentation-openai": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "^0.125.0",
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/instrumentation": "^0.203.0",
+    "@opentelemetry/otlp-transformer": "^0.222.0",
+    "@opentelemetry/sdk-trace-base": "^2.11.0",
+    "@traceloop/instrumentation-anthropic": "^0.27.0",
+    "@traceloop/instrumentation-openai": "^0.27.0",
+    "@types/node": "^22.0.0",
+    "ai": "7.0.97",
+    "openai": "^7.15.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.0"
+  }
+}
