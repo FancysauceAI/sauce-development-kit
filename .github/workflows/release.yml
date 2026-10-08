@@ -43,8 +43,8 @@ jobs:
           publish-script: pnpm release
           pr-title: "chore: release"
           commit-message: "chore: release"
+          github-token: ${{ steps.app-token.outputs.token }}
         env:
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
           # `changeset publish` needs this: packages go to GitHub Packages (see
           # `.npmrc`), and the `registry-url` above had setup-node write the
           # `_authToken` line that reads it. The job's own token is the
