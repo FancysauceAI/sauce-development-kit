@@ -3,9 +3,23 @@
   "version": "0.2.0",
   "description": "Attribute AI usage and cost to customers, products, and features — OpenTelemetry-native.",
   "license": "Apache-2.0",
+  "homepage": "https://github.com/FancysauceAI/sauce-development-kit#readme",
+  "bugs": {
+    "url": "https://github.com/FancysauceAI/sauce-development-kit/issues"
+  },
+  "keywords": [
+    "ai",
+    "llm",
+    "cost",
+    "attribution",
+    "opentelemetry",
+    "openai",
+    "anthropic",
+    "vercel-ai-sdk"
+  ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/FancysauceAI/sauce-development-kit",
+    "url": "git+https://github.com/FancysauceAI/sauce-development-kit.git",
     "directory": "packages/sdk"
   },
   "type": "module",
@@ -17,6 +31,9 @@
     "dist",
     "README.md"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "./dist/index.cjs",
   "types": "./dist/index.d.ts",
   "exports": {
