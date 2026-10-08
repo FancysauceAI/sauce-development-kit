@@ -2,6 +2,7 @@ import type { Context } from "@opentelemetry/api";
 import type { ReadableSpan, Span, SpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { warnOnce } from "../diagnostics.js";
 import { VERCEL_TRACER_NAME } from "../vercel-telemetry.js";
+import { BATCH_SCOPE } from "../batch/record.js";
 
 /** The scope the Vercel AI SDK names its own tracer. */
 const VERCEL_AI_SCOPE = "ai";
@@ -9,13 +10,14 @@ const VERCEL_AI_SCOPE = "ai";
 /**
  * The scopes an SDK that has instrumented nothing yet already exports: the two
  * the Vercel AI SDK's spans can carry, depending on whether the version in use
- * spans against the tracer `vercelTelemetry()` hands it or against its own.
+ * spans against the tracer `vercelTelemetry()` hands it or against its own,
+ * and the SDK's own batch result spans.
  *
  * Everything else is added by `instrument()` as each provider's
  * instrumentation package loads, so a new provider needs no entry here.
  */
 export function createScopeAllowList(): Set<string> {
-  return new Set([VERCEL_AI_SCOPE, VERCEL_TRACER_NAME]);
+  return new Set([VERCEL_AI_SCOPE, VERCEL_TRACER_NAME, BATCH_SCOPE]);
 }
 
 // Bounded for the reason the warning budget is: a host minting tracer names
@@ -81,7 +83,8 @@ export class ScopeFilterProcessor implements SpanProcessor {
     warnOnce(
       `scope:${scope}`,
       `a span from the "${scope}" instrumentation was not exported: this SDK exports only ` +
-        "the spans of the AI clients it instrumented and of the Vercel AI SDK. To ship your " +
+        "the spans of the AI clients it instrumented, of the Vercel AI SDK, and its own batch " +
+        "result spans. To ship your " +
         "own tracing, send it to a tracer provider of your own — fancy.init({ registerProvider: " +
         "false }) leaves the global one to you",
     );

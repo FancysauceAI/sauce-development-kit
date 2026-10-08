@@ -165,7 +165,12 @@ describe("the fancy object", () => {
 
   it("attributes into the live context when a client is instrumented again after a restart", async () => {
     const restarted = new InMemorySpanExporter();
-    const pool = [new InMemorySpanExporter(), restarted];
+    const pool = [
+      new InMemorySpanExporter(),
+      new InMemorySpanExporter(),
+      restarted,
+      new InMemorySpanExporter(),
+    ];
     const { FakeOpenAI, Completions } = fakeOpenAI();
     sdk = createSdk({
       exporterFactory: () => pool.shift()!,
@@ -189,7 +194,12 @@ describe("the fancy object", () => {
 
   it("keeps attribute.start/add/end stamping after a restart", async () => {
     const restarted = new InMemorySpanExporter();
-    const pool = [new InMemorySpanExporter(), restarted];
+    const pool = [
+      new InMemorySpanExporter(),
+      new InMemorySpanExporter(),
+      restarted,
+      new InMemorySpanExporter(),
+    ];
     sdk = createSdk({ exporterFactory: () => pool.shift()! });
     // The callable `fancy.attribute` is: composing the three forms over one
     // context that a restart replaces underneath them.

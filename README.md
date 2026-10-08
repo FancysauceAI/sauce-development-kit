@@ -321,6 +321,43 @@ The object carries `recordInputs` and `recordOutputs`, set from `init({ content 
 
 Build it after `init()`. Called before, it warns and returns a policy that records content, and keeps recording it even if a later `init({ content: "none" })` turns that off — the policy is frozen into the object so that spreading it stays safe.
 
+## Batch APIs
+
+Use `fancy.recordBatchResult()` for results that arrive later, in another process, from a provider batch API. Record only billed results; errored, canceled, and expired results are not billed. `inputTokens` excludes cache tokens, which are passed separately. This API never records prompt or response content.
+
+```ts
+const batch = await client.messages.batches.retrieve(batchId);
+const results = await client.messages.batches.results(batch.id);
+let dropped = 0;
+for await (const item of results) {
+  if (item.result.type !== "succeeded") continue;
+  const { message } = item.result;
+  const admitted = await fancy.recordBatchResult({
+    provider: "anthropic",
+    batchId: batch.id,
+    customId: item.custom_id,
+    model: message.model,
+    responseId: message.id,
+    finishReason: message.stop_reason ?? undefined,
+    startTime: new Date(batch.created_at),
+    endTime: batch.ended_at ? new Date(batch.ended_at) : undefined,
+    usage: {
+      inputTokens: message.usage.input_tokens,
+      outputTokens: message.usage.output_tokens,
+      cacheReadInputTokens: message.usage.cache_read_input_tokens,
+      cacheCreationInputTokens: message.usage.cache_creation_input_tokens,
+    },
+    attribution: { customer: "acme-42", member: "u_123", product: "nightly-digest" },
+  });
+  if (!admitted) dropped++;
+}
+if (dropped > 0) throw new Error(`Could not record ${dropped} batch results`);
+await fancy.forceFlush();
+await fancy.shutdown();
+```
+
+Recording the same `(provider, batchId, customId)` again is deduplicated by the ingest; the first record wins.
+
 ## Serverless
 
 A serverless function can be frozen or torn down the moment its handler returns, taking the export queue with it. Flush before you return:

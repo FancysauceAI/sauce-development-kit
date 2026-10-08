@@ -22,12 +22,18 @@ const PER_RUN_FIELDS = new Set([
  */
 const PER_RUN_ATTRIBUTES = new Set(["fancysauce.sdk.version"]);
 
+/** Instrumentation scopes this package owns; their version is the package version. */
+const OWN_SCOPES = new Set(["@fancysauce/sdk/batch"]);
+
 function normalize(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(normalize);
   if (value !== null && typeof value === "object") {
     const { key } = value as { key?: unknown };
     if (typeof key === "string" && PER_RUN_ATTRIBUTES.has(key))
       return { key, value: "<normalized>" };
+    const { name } = value as { name?: unknown };
+    if (typeof name === "string" && OWN_SCOPES.has(name))
+      return { ...value, version: "<normalized>" };
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>).map(([k, v]) => [
         k,
