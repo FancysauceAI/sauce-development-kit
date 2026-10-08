@@ -38,7 +38,7 @@ describe("Anthropic batch contract", () => {
     for await (const item of results) {
       if (item.result.type !== "succeeded") continue;
       const { message } = item.result;
-      fancy.recordBatchResult({
+      const admitted = await fancy.recordBatchResult({
         provider: "anthropic",
         batchId: batch.id,
         customId: item.custom_id,
@@ -55,6 +55,7 @@ describe("Anthropic batch contract", () => {
         },
         attribution: { customer: "tenant-1", member: "u-1", product: "nightly-digest" },
       });
+      if (!admitted) throw new Error("Batch result was not recorded");
     }
     await fancy.forceFlush();
 

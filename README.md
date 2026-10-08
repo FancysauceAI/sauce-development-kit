@@ -328,10 +328,11 @@ Use `fancy.recordBatchResult()` for results that arrive later, in another proces
 ```ts
 const batch = await client.messages.batches.retrieve(batchId);
 const results = await client.messages.batches.results(batch.id);
+let dropped = 0;
 for await (const item of results) {
   if (item.result.type !== "succeeded") continue;
   const { message } = item.result;
-  fancy.recordBatchResult({
+  const admitted = await fancy.recordBatchResult({
     provider: "anthropic",
     batchId: batch.id,
     customId: item.custom_id,
@@ -348,8 +349,11 @@ for await (const item of results) {
     },
     attribution: { customer: "acme-42", member: "u_123", product: "nightly-digest" },
   });
+  if (!admitted) dropped++;
 }
+if (dropped > 0) throw new Error(`Could not record ${dropped} batch results`);
 await fancy.forceFlush();
+await fancy.shutdown();
 ```
 
 Recording the same `(provider, batchId, customId)` again is deduplicated by the ingest; the first record wins.

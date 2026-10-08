@@ -5,6 +5,7 @@ import type { AttributionContext } from "../attribution/context.js";
 import type { BagInput } from "../attribution/normalize.js";
 import { ATTR, SERVICE_TIER_BATCH } from "../contract.js";
 import { debug, warnOnce } from "../diagnostics.js";
+import type { BatchWriter } from "./writer.js";
 
 /** Token counts for one batch result, as the provider billed them. */
 export interface BatchResultUsage {
@@ -122,16 +123,17 @@ export function recordBatchResult(
   tracer: Tracer | undefined,
   ids: SlotIdGenerator | undefined,
   ctx: AttributionContext,
-): void {
-  if (!tracer || !ids) {
+  writer: BatchWriter | undefined,
+): Promise<boolean> {
+  if (!tracer || !ids || !writer) {
     warnOnce(
       "batch:preinit",
       "fancy.recordBatchResult() called before fancy.init(); the result was not recorded",
     );
-    return;
+    return Promise.resolve(false);
   }
   try {
-    if (!validate(result)) return;
+    if (!validate(result)) return Promise.resolve(false);
     const end = validDate(result.endTime) ?? new Date();
     const maybeStart = validDate(result.startTime) ?? end;
     const start = maybeStart > end ? end : maybeStart;
@@ -155,27 +157,43 @@ export function recordBatchResult(
       attributes["gen_ai.usage.cache_creation.input_tokens"] =
         result.usage.cacheCreationInputTokens;
 
-    ctx.attribute(result.attribution ?? {}, { metadata: result.metadata ?? {} }, () =>
-      ids.use(
-        {
-          traceId: batchTraceId(result.provider, result.batchId),
-          spanId: batchSpanId(result.provider, result.batchId, result.customId),
-        },
-        () => {
-          const span = tracer.startSpan(
-            `chat ${result.model}`,
-            { kind: SpanKind.CLIENT, startTime: start, root: true, attributes },
-            ROOT_CONTEXT,
-          );
-          span.setStatus({ code: SpanStatusCode.OK });
-          span.end(end);
-        },
-      ),
-    );
+    const scope = ctx.capture(result.attribution ?? {}, { metadata: result.metadata ?? {} });
+    return writer.admit(() => {
+      try {
+        ctx.runWith(scope, () =>
+          ids.use(
+            {
+              traceId: batchTraceId(result.provider, result.batchId),
+              spanId: batchSpanId(result.provider, result.batchId, result.customId),
+            },
+            () => {
+              const span = tracer.startSpan(
+                `chat ${result.model}`,
+                { kind: SpanKind.CLIENT, startTime: start, root: true, attributes },
+                ROOT_CONTEXT,
+              );
+              span.setStatus({ code: SpanStatusCode.OK });
+              span.end(end);
+            },
+          ),
+        );
+        return true;
+      } catch (error) {
+        warnOnce(
+          "batch:record",
+          "fancy.recordBatchResult() could not record a result; it was dropped",
+        );
+        debug("batch result recording failed", {
+          error_name: error instanceof Error ? error.name : typeof error,
+        });
+        return false;
+      }
+    });
   } catch (error) {
     warnOnce("batch:record", "fancy.recordBatchResult() could not record a result; it was dropped");
     debug("batch result recording failed", {
       error_name: error instanceof Error ? error.name : typeof error,
     });
+    return Promise.resolve(false);
   }
 }

@@ -19,7 +19,7 @@ await fancy.attribute({ customer: "acme-42" }, () =>
 
 ## Batch APIs
 
-For results that arrive later, in another process, from a provider batch API, call `fancy.recordBatchResult()` for each billed result and then `await fancy.forceFlush()`. Pass token usage and per-result attribution; this API never records prompt or response content. Optional cache counts accept `number`, `null`, or `undefined`, so Anthropic's nullable usage fields can be passed directly:
+For results that arrive later, in another process, from a provider batch API, await `fancy.recordBatchResult()` for each billed result; it returns `Promise<boolean>`. Count `false` results, then await `fancy.forceFlush()` and `fancy.shutdown()`. A transport failure rejects recording or flushing and should fail the job. Pass token usage and per-result attribution; this API never records prompt or response content. Optional cache counts accept `number`, `null`, or `undefined`, so Anthropic's nullable usage fields can be passed directly:
 
 ```ts
 usage: {

@@ -178,7 +178,7 @@ describe("init", () => {
   it("releases the global provider on shutdown so a later init() exports again", async () => {
     const first = new InMemorySpanExporter();
     const second = new InMemorySpanExporter();
-    const pool = [first, second];
+    const pool = [first, new InMemorySpanExporter(), second, new InMemorySpanExporter()];
     sdk = createSdk({ exporterFactory: () => pool.shift()! });
     sdk.init({ apiKey: "fs_test_x" });
     trace.getTracer("ai").startSpan("one").end();
@@ -196,7 +196,12 @@ describe("init", () => {
     const failing = new InMemorySpanExporter();
     failing.shutdown = () => Promise.reject(new Error("exporter shutdown blew up"));
     const second = new InMemorySpanExporter();
-    const pool: SpanExporter[] = [failing, second];
+    const pool: SpanExporter[] = [
+      failing,
+      new InMemorySpanExporter(),
+      second,
+      new InMemorySpanExporter(),
+    ];
     sdk = createSdk({ exporterFactory: () => pool.shift()! });
     sdk.init({ apiKey: "fs_test_x" });
     await expect(sdk.shutdown()).rejects.toThrow("exporter shutdown blew up");

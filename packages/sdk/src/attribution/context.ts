@@ -140,6 +140,23 @@ export class AttributionContext {
     return this.als?.getStore() ?? this.global;
   }
 
+  capture(bag: BagInput, opts?: AttributeOptions): Scope {
+    const scope = merge(this.current(), bag, opts);
+    debug("attribute", scopeShape(scope));
+    return scope;
+  }
+
+  runWith<T>(scope: Scope, fn: () => T): T {
+    if (this.als) return this.als.run(scope, fn);
+    const previous = this.global;
+    this.global = scope;
+    try {
+      return fn();
+    } finally {
+      this.global = previous;
+    }
+  }
+
   private run<T>(bag: BagInput, optsOrFn: AttributeOptions | (() => T), maybeFn?: () => T): T {
     const fn = typeof optsOrFn === "function" ? optsOrFn : (maybeFn as () => T);
     const opts = typeof optsOrFn === "function" ? undefined : optsOrFn;
