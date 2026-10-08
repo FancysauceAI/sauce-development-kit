@@ -1,6 +1,6 @@
 {
   "name": "@fancysauce/sdk",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Attribute AI usage and cost to customers, products, and features — OpenTelemetry-native.",
   "license": "Apache-2.0",
   "repository": {
