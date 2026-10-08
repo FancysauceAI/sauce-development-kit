@@ -2,6 +2,8 @@ import { context, createContextKey, ROOT_CONTEXT, trace } from "@opentelemetry/a
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
 import { resourceFromAttributes } from "@opentelemetry/resources";
 import {
+  AlwaysOnSampler,
+  BasicTracerProvider,
   BatchSpanProcessor,
   type SpanExporter,
   type SpanProcessor,
@@ -16,6 +18,12 @@ import {
 import { expandReserved, normalizeBag, type BagInput } from "./attribution/normalize.js";
 import { resolveConfig, type InitOptions, type ResolvedConfig } from "./config.js";
 import { ATTR, SCHEMA_VERSION } from "./contract.js";
+import {
+  BATCH_SCOPE,
+  recordBatchResult as recordBatchResultSpan,
+  SlotIdGenerator,
+  type BatchResult,
+} from "./batch/record.js";
 import { setDebug, warnOnce } from "./diagnostics.js";
 import { ContentPolicyExporter } from "./export/content-policy-exporter.js";
 import { createExporter } from "./export/exporter.js";
@@ -62,6 +70,8 @@ export function createSdk(internals: SdkInternals = {}) {
   let processors: SpanProcessor[] = [];
   let scopes = createScopeAllowList();
   let registry: InstrumentRegistry | undefined;
+  let batchTracer: ReturnType<BasicTracerProvider["getTracer"]> | undefined;
+  let batchIds: SlotIdGenerator | undefined;
   // shutdown() releases only what init() claimed. An application that owns the
   // global tracer provider or installed its own context manager keeps both.
   let claimedGlobalProvider = false;
@@ -187,29 +197,37 @@ export function createSdk(internals: SdkInternals = {}) {
         nextScopes,
       ),
     ];
-    // registerProvider: false leaves the provider, the resource and the context
-    // manager to the host, which builds its own provider from
-    // spanProcessors(). Constructing one here would be dead weight: an OTel 2.x
-    // provider takes its processors at construction, so a second provider
-    // cannot be handed the host's, and one that never becomes global exports
-    // nothing.
+    // Process-wide defaults ride on the resource, where they are written once
+    // per export rather than once per span. They are stamped on every span
+    // too (see StampingProcessor's `base`) because the ingest reads identity
+    // from span attributes; the resource copy is what survives a span the
+    // SDK's processor never saw.
+    // Keep one resource for both providers. The private provider is used only
+    // to create SDK-owned batch spans and is never registered globally.
+    const resource = resourceFromAttributes({
+      ...(resolved.name ? { "service.name": resolved.name } : {}),
+      ...(resolved.version ? { "service.version": resolved.version } : {}),
+      [ATTR.schemaVersion]: SCHEMA_VERSION,
+      [ATTR.sdkVersion]: SDK_VERSION,
+      ...Object.fromEntries(
+        Object.entries(defaults.attribution).map(([k, v]) => [ATTR.attributionPrefix + k, v]),
+      ),
+      ...expandReserved(defaults.reserved),
+    });
+    const nextBatchIds = new SlotIdGenerator();
+    const batchProvider = new BasicTracerProvider({
+      resource,
+      idGenerator: nextBatchIds,
+      sampler: new AlwaysOnSampler(),
+      spanProcessors: nextProcessors,
+    });
+    const nextBatchTracer = batchProvider.getTracer(BATCH_SCOPE, SDK_VERSION);
+    // registerProvider: false leaves the global provider, the resource and the
+    // context manager to the host, which builds its own provider from
+    // spanProcessors(). The private batch provider above remains available to
+    // recordBatchResult() without taking ownership of any global state.
     let nextProvider: NodeTracerProvider | undefined;
     if (resolved.registerProvider) {
-      // Process-wide defaults ride on the resource, where they are written once
-      // per export rather than once per span. They are stamped on every span
-      // too (see StampingProcessor's `base`) because the ingest reads identity
-      // from span attributes; the resource copy is what survives a span the
-      // SDK's processor never saw.
-      const resource = resourceFromAttributes({
-        ...(resolved.name ? { "service.name": resolved.name } : {}),
-        ...(resolved.version ? { "service.version": resolved.version } : {}),
-        [ATTR.schemaVersion]: SCHEMA_VERSION,
-        [ATTR.sdkVersion]: SDK_VERSION,
-        ...Object.fromEntries(
-          Object.entries(defaults.attribution).map(([k, v]) => [ATTR.attributionPrefix + k, v]),
-        ),
-        ...expandReserved(defaults.reserved),
-      });
       nextProvider = new NodeTracerProvider({ resource, spanProcessors: nextProcessors });
       if (trace.setGlobalTracerProvider(nextProvider)) claimedGlobalProvider = true;
       else
@@ -238,11 +256,15 @@ export function createSdk(internals: SdkInternals = {}) {
     provider = nextProvider;
     processors = nextProcessors;
     scopes = nextScopes;
+    batchTracer = nextBatchTracer;
+    batchIds = nextBatchIds;
   }
 
   return {
     init,
     instrument,
+    recordBatchResult: (result: BatchResult): void =>
+      recordBatchResultSpan(result, batchTracer, batchIds, ctx),
     vercelTelemetry,
     config: (): ResolvedConfig | undefined => cfg,
     /**
@@ -292,6 +314,8 @@ export function createSdk(internals: SdkInternals = {}) {
         processors = [];
         scopes = createScopeAllowList();
         registry = undefined;
+        batchTracer = undefined;
+        batchIds = undefined;
         ctx = new AttributionContext({ mode: "auto" });
       }
     },

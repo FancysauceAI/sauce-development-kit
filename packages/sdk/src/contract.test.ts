@@ -12,7 +12,7 @@ import {
 
 describe("contract", () => {
   it("names the schema version the ingest expects", () => {
-    expect(SCHEMA_VERSION).toBe("1.0.0");
+    expect(SCHEMA_VERSION).toBe("1.0.1");
   });
   it("prefixes attribution and metadata attributes", () => {
     expect(ATTR.attributionPrefix).toBe("fancysauce.attribution.");
@@ -24,6 +24,9 @@ describe("contract", () => {
       metadataPrefix: "fancysauce.metadata.",
       schemaVersion: "fancysauce.schema_version",
       sdkVersion: "fancysauce.sdk.version",
+      batchId: "fancysauce.batch.id",
+      batchCustomId: "fancysauce.batch.custom_id",
+      serviceTier: "fancysauce.service_tier",
       contentTruncated: "fancysauce.content.truncated",
       contentBytes: "fancysauce.content.bytes",
       userEmail: "user.email",

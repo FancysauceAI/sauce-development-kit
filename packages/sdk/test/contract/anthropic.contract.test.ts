@@ -83,7 +83,7 @@ describe("Anthropic end to end", () => {
     expect(attr(rs.resource.attributes, "service.name")).toEqual({ stringValue: "contract-app" });
     expect(attr(rs.resource.attributes, "service.version")).toEqual({ stringValue: "0.0.1" });
     expect(attr(rs.resource.attributes, "fancysauce.schema_version")).toEqual({
-      stringValue: "1.0.0",
+      stringValue: "1.0.1",
     });
     // Pinned as present rather than by value: the version tracks the package.
     expect(attr(rs.resource.attributes, "fancysauce.sdk.version")).toBeDefined();

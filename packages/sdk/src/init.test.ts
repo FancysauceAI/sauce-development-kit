@@ -60,7 +60,7 @@ describe("init", () => {
     const span = mem.getFinishedSpans()[0];
     expect(span.resource.attributes["service.name"]).toBe("support-chat");
     expect(span.resource.attributes["service.version"]).toBe("1.2.3");
-    expect(span.resource.attributes["fancysauce.schema_version"]).toBe("1.0.0");
+    expect(span.resource.attributes["fancysauce.schema_version"]).toBe("1.0.1");
     expect(span.resource.attributes["fancysauce.sdk.version"]).toBe(PACKAGE_VERSION);
     expect(span.resource.attributes["fancysauce.attribution.environment"]).toBe("prod");
     expect(span.resource.attributes["user.email"]).toBe("ops@example.com");

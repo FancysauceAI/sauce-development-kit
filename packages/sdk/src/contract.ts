@@ -1,7 +1,7 @@
 // The wire contract between this SDK and the Fancysauce ingest. This module
 // has no runtime dependencies so the ingest can pin it directly.
 
-export const SCHEMA_VERSION = "1.0.0" as const;
+export const SCHEMA_VERSION = "1.0.1" as const;
 
 export const ATTR = {
   // The two *Prefix entries are concatenated with a bag key
@@ -10,6 +10,9 @@ export const ATTR = {
   metadataPrefix: "fancysauce.metadata.",
   schemaVersion: "fancysauce.schema_version",
   sdkVersion: "fancysauce.sdk.version",
+  batchId: "fancysauce.batch.id",
+  batchCustomId: "fancysauce.batch.custom_id",
+  serviceTier: "fancysauce.service_tier",
   contentTruncated: "fancysauce.content.truncated",
   // Total UTF-8 bytes of the content attributes as exported, after redaction
   // and truncation. Advisory: the ingest recomputes it from the payload it
@@ -24,6 +27,9 @@ export const ATTR = {
   outputMessages: "gen_ai.output.messages",
   systemInstructions: "gen_ai.system_instructions",
 } as const;
+
+/** The tier tells the ingest to price at the provider's batch rate. */
+export const SERVICE_TIER_BATCH = "batch" as const;
 
 export const CONTENT_ATTRIBUTES = [
   ATTR.inputMessages,
