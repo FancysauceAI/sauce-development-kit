@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_ENDPOINT, resolveConfig } from "./config.js";
+import { resolveConfig } from "./config.js";
 import { resetDiagnostics } from "./diagnostics.js";
 
 describe("resolveConfig", () => {
@@ -9,7 +9,7 @@ describe("resolveConfig", () => {
 
   it("applies the defaults", () => {
     const cfg = resolveConfig({ apiKey: "fs_test_x" });
-    expect(cfg.endpoint).toBe(DEFAULT_ENDPOINT);
+    expect(cfg.endpoint).toBe("https://ingest.preview.fancysauce.ai");
     expect(cfg.content).toBe("full");
     expect(cfg.context).toBe("auto");
     expect(cfg.registerContextManager).toBe(true);

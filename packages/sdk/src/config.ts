@@ -11,7 +11,7 @@ export interface InitOptions {
   /** Application version. Becomes `service.version`. */
   version?: string;
   /**
-   * Ingest base URL. Default https://ingest.fancysauce.ai. Must be https
+   * Ingest base URL. Default https://ingest.preview.fancysauce.ai. Must be https
    * unless the host is loopback.
    */
   endpoint?: string;
@@ -62,7 +62,7 @@ export interface ResolvedConfig {
   debug: boolean;
 }
 
-export const DEFAULT_ENDPOINT = "https://ingest.fancysauce.ai";
+export const DEFAULT_ENDPOINT = "https://ingest.preview.fancysauce.ai";
 
 // The exception to requiring https: a local collector or a test receiver has no
 // certificate, and its traffic never leaves the machine. Every other host would
