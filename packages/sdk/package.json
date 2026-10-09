@@ -103,7 +103,7 @@
     }
   },
   "devDependencies": {
-    "@anthropic-ai/sdk": "^0.129.0",
+    "@anthropic-ai/sdk": "^0.131.0",
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/instrumentation": "^0.222.0",
     "@opentelemetry/otlp-transformer": "^0.222.0",
@@ -111,10 +111,10 @@
     "@traceloop/instrumentation-anthropic": "^0.27.0",
     "@traceloop/instrumentation-openai": "^0.27.0",
     "@types/node": "^26.6.3",
-    "ai": "7.0.122",
+    "ai": "7.0.128",
     "openai": "^7.23.0",
     "tsup": "^8.5.1",
-    "typescript": "^5.9.3",
+    "typescript": "^7.0.2",
     "vitest": "^5.0.0"
   }
 }
