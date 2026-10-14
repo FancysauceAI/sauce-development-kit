@@ -72,26 +72,49 @@ jobs:
         with: { fetch-depth: 0 }
       - uses: wagoid/commitlint-github-action@b948419dd99f3fd78a6548d48f94e3df7f6bf3ed # v6.2.1
         with: { configFile: .commitlintrc.json }
-  # Report-only: `continue-on-error` keeps a finding or a missing license from
-  # failing the run while the allow-list in `.gitleaks.toml` is proven out.
-  # Findings land in the job summary and a SARIF artifact. Remove it to block.
-  # The action is not run for `merge_group`, an event it rejects.
+  # Report-only: `--exit-code 0` keeps a finding from failing the run while the
+  # allow-list in `.gitleaks.toml` is proven out; a scan error still fails it.
+  # Findings land in the job summary and a SARIF artifact. Drop the flag to block.
+  # The release binary is used rather than gitleaks-action, which needs a
+  # license key for organization-owned repositories.
   secrets:
-    if: github.event_name != 'merge_group'
     runs-on: ubuntu-latest
-    # The action lists a pull request's commits through the API.
     permissions:
       contents: read
-      pull-requests: read
     timeout-minutes: 15
+    env:
+      GITLEAKS_VERSION: 8.30.1
+      # From gitleaks_8.30.1_checksums.txt in the v8.30.1 release, for the
+      # linux_x64 tarball. Update with GITLEAKS_VERSION.
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { fetch-depth: 0 }
-      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
-        continue-on-error: true
+      - name: Install gitleaks
+        run: |
+          curl -sSfL -o "${RUNNER_TEMP}/gitleaks.tar.gz" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  ${RUNNER_TEMP}/gitleaks.tar.gz" | sha256sum --check
+          tar -xzf "${RUNNER_TEMP}/gitleaks.tar.gz" -C "${RUNNER_TEMP}" gitleaks
+      - name: Scan
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Required because the repository belongs to an organization.
-          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
-          GITLEAKS_CONFIG: .gitleaks.toml
-          GITLEAKS_ENABLE_COMMENTS: "false"
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          args=(git --config .gitleaks.toml --redact --no-banner --exit-code 0
+            --report-format sarif --report-path gitleaks.sarif)
+          # A pull request scans only its own commits; every other event scans
+          # the full history.
+          if [ "$EVENT_NAME" = pull_request ]; then
+            args+=(--log-opts="${BASE_SHA}..${HEAD_SHA}")
+          fi
+          "${RUNNER_TEMP}/gitleaks" "${args[@]}" 2>&1 | tee gitleaks.log
+          {
+            echo "### gitleaks"
+            echo "Findings: $(jq '[.runs[].results[]] | length' gitleaks.sarif)"
+            grep -o '[0-9]* commits scanned' gitleaks.log | sed 's/^/Scanned: /'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with: { name: gitleaks-sarif, path: gitleaks.sarif, if-no-files-found: ignore }
