@@ -1,0 +1,9 @@
+# Fails, rather than skips, without gitleaks: a hook that silently does nothing
+# is no control.
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "gitleaks is required to commit here and was not found on PATH." >&2
+  echo "Install it (macOS: 'brew install gitleaks'; other platforms: https://github.com/gitleaks/gitleaks#installing) and commit again." >&2
+  exit 1
+fi
+
+gitleaks protect --staged --redact --config .gitleaks.toml

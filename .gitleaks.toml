@@ -1,0 +1,11 @@
+# Extends gitleaks' built-in rules; the pre-commit hook and the CI `secrets`
+# job both read this file.
+#
+# The baseline run on `main` (working tree and all 81 commits of history)
+# reported zero findings, so there are deliberately no allow entries. Add one
+# only for a proven false positive, scoped as narrowly as the finding allows
+# and with a comment saying why it is safe.
+title = "sauce-development-kit"
+
+[extend]
+useDefault = true
